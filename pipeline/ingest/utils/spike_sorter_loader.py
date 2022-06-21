@@ -655,6 +655,11 @@ class SpikeGLXMeta:
                 res['data'].append([int(d) for d in u.split(' ')])
 
         return res
+    
+    def get_recording_channels_indices(self, band='ap', exclude_sync=True):
+        if self.chanmap is None: 
+            return None
+        return np.r_[0:int(self.chanmap['shape'][0 if band=='ap' else 1]) + 1 - exclude_sync]
 
 
 class SpikeGLX:
@@ -736,13 +741,13 @@ class SpikeGLX:
             imax = IMAX[self.apmeta.probe_model]
             imroTbl_data = self.apmeta.imroTbl['data']
             imroTbl_idx = 3
-            chn_ind = self.apmeta.get_recording_channels_indices(exclude_sync=True)
+            chn_ind = self.apmeta.get_recording_channels_indices(band='ap', exclude_sync=True)
 
         elif band == 'lf':
             imax = IMAX[self.lfmeta.probe_model]
             imroTbl_data = self.lfmeta.imroTbl['data']
             imroTbl_idx = 4
-            chn_ind = self.lfmeta.get_recording_channels_indices(exclude_sync=True)
+            chn_ind = self.lfmeta.get_recording_channels_indices(band='lf', exclude_sync=True)
         else:
             raise ValueError(f'Unsupported band: {band} - Must be "ap" or "lf"')
 

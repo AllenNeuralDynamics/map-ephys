@@ -183,7 +183,7 @@ class LFP(dj.Imported):
 
         electrode_keys, lfp = [], []
 
-        lfp_channel_ind = spikeglx_recording.lfmeta.recording_channels
+        lfp_channel_ind = spikeglx_recording.lfmeta.get_recording_channels_indices(band='lf', exclude_sync=True)
 
         # Extract LFP data at specified channels and convert to uV
         lfp = spikeglx_recording.lf_timeseries[:, lfp_channel_ind]  # (sample x channel)
