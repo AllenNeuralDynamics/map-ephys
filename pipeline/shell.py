@@ -361,7 +361,22 @@ def load_meta_foraging():
             
     # --- Add viruses ---
     # Not implemented for now.  Han
-  
+    print('Adding virus... ')
+    df_virus = pd.read_csv(pathlib.Path(meta_lab_dir) / 'Virus.csv', keep_default_na=False)
+    
+    duplicate_num = 0
+    for virus in df_virus.iterrows():
+        virus = virus[1]
+        virusnow = {name: virus[name] for name in ['virus_id', 'virus_stock', 'virus_source',
+                                                   'serotype', 'username', 'virus_name', 'titer', 'order_date', 'remarks']}
+        try:
+            lab.Virus().insert1(virusnow)
+            print('  added virusnow: ', virusnow['virus_id'])
+        except dj.errors.DuplicateError:
+            duplicate_num += 1
+            # print('  duplicate. rig: ',rignow['rig'], ' already exists')
+    print(f'  {duplicate_num} viruses already exist')
+    
     # --- Add subjects and water restrictions ---
     print('Adding subjects and water restrictions...')
     df_surgery = pd.read_csv(pathlib.Path(meta_dir) / 'Surgery.csv')

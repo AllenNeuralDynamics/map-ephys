@@ -107,24 +107,32 @@ class WaterRestriction(dj.Manual):
 
 
 @schema
+class VirusStock(dj.Lookup):
+    definition = """
+    virus_stock   : varchar(60)
+    """
+    contents = zip(['Svoboda', 'GENIE-AAV', 'AIND'])
+@schema
 class VirusSource(dj.Lookup):
     definition = """
     virus_source   : varchar(60)
     """
-    contents = zip(['Janelia', 'UPenn', 'Addgene', 'UNC', 'Other'])
+    contents = zip(['Janelia', 'UPenn', 'Addgene', 'UNC', 'Other', 'Yulong Li/ Biohippo'])
 
 
 @schema
-class Serotype(dj.Manual):
+class Serotype(dj.Lookup):
     definition = """
     serotype   : varchar(60)
     """
+    contents = zip(['AAV2/9', 'AAV2/1', 'SL1'])
 
 
 @schema
 class Virus(dj.Manual):
     definition = """
-    virus_id : int unsigned
+    -> VirusStock
+    virus_id :    varchar(30)
     ---
     -> VirusSource 
     -> Serotype
@@ -132,7 +140,7 @@ class Virus(dj.Manual):
     virus_name      : varchar(256)
     titer           : Decimal(20,1) # 
     order_date      : date
-    remarks         : varchar(256)
+    remarks = NULL  : varchar(256)
     """
 
     class Notes(dj.Part):
