@@ -402,7 +402,7 @@ class BehaviorBpodIngest(dj.Imported):
         key_source = []
 
         IDs = {k: v for k, v in zip(*lab.WaterRestriction().fetch(
-            'water_restriction_number', 'subject_id'))}
+            'water_restriction_number', 'subject_id')) if not any([x in k for x in ('DL', 'dl', 'SC', 'FOR', 'tw', 'HC')])}  # Exclude old animals
 
         for subject_now, subject_id_now in IDs.items():
             meta_dir = dj.config.get('custom', {}).get('behavior_bpod', []).get('meta_dir')

@@ -215,3 +215,41 @@ def match_probe_to_ephys(h2o, dpath, dglob):
         clustered_probes[probe_number] = (fp, loader, SpikeGLXMeta(meta_file))
 
     return clustered_probes
+
+
+# =============== For ophys ================
+
+def get_ophys_paths():
+    """
+    retrieve ophys paths from dj.config
+    config should be in dj.config of the format:
+
+      dj.config = {
+        ...,
+        'custom': {
+          'ophys_data_paths': ['/path/string', '/path2/string']
+        }
+        ...
+      }
+    """
+    return dj.config.get('custom', {}).get('ophys_data_paths', None)
+
+
+def get_ophys_sess_dirs(session_key):
+    session_info = (experiment.Session & session_key).fetch1()
+    sinfo = ((lab.WaterRestriction
+              * lab.Subject.proj()
+              * experiment.Session.proj(..., '-session_time')) & session_info).fetch1()
+
+    rigpaths = get_ophys_paths()
+    h2o = sinfo['water_restriction_number']
+
+    sess_time = (datetime.min + session_info['session_time']).time()
+    sess_datetime = datetime.combine(session_info['session_date'], sess_time)
+
+    ophys_dirs = []
+    for rigpath in rigpaths:
+        rigpath = pathlib.Path(rigpath)
+        ophys_dirs.extend([p for p in (rigpath / sess_datetime.date().strftime('%y%m%d')).glob(f'{h2o}*')])
+
+    return ophys_dirs
