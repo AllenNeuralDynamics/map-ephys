@@ -145,34 +145,20 @@ class OphysIngest(dj.Imported):
             # TODO: --- Insert ophys.TrialEvent and ophys.ActionEvent ---
             
             ### Kenta 2022/07/05- added ###
+            log.info(f'  Ingest TTL (from BPOD recorded with NIDAQ through Bonsai) data...')
+            
             TTLsignal_file = list(ophys_dir.glob('TTL_20*'))[0]
             TTLsignal = np.fromfile(TTLsignal_file)
             
             # Sorting NIDAQ-AI channels
-            if (len(TTLsignal)/1000) / len(TTLts) == 1:
+            if (len(TTLsignal)/1000) / len(syncpulse) == 1:
                 TTLsignal1 = TTLsignal
-                plt.figure()
-                plt.plot(TTLsignal)
-                print("Num Analog Channel: 1")
                 
-            elif (len(TTLsignal)/1000) / len(TTLts) == 2:  #this shouldn't happen, though...
-                TTLsignal2 = TTLsignal[1::2]
-                TTLsignal = TTLsignal[0::2]
-                plt.figure()
-                plt.plot(TTLsignal)
-                plt.plot(TTLsignal2)
-                print("Num Analog Channel: 2")
+            elif (len(TTLsignal)/1000) / len(syncpulse) == 2:  #this shouldn't happen, though...
+                TTLsignal1 = TTLsignal[0::2]
                     
-            elif (len(TTLsignal)/1000) / len(TTLts) >= 3:  # deinterleaved Channel #2 and #3 are raw licks 
+            elif (len(TTLsignal)/1000) / len(syncpulse) >= 3:  # deinterleaved Channel #2 and #3 are raw licks 
                 TTLsignal1 = TTLsignal[0::3]
-                plt.figure()
-                plt.plot(TTLsignal1,label='Events')
-                
-                if FlagNoRawLick == 0: 
-                    TTLsignal2 = TTLsignal[1::3]
-                    TTLsignal3 = TTLsignal[2::3]
-                    plt.plot(TTLsignal2,label='LickL')
-                    plt.plot(TTLsignal3,label='LickR')    
                     
             del TTLsignal 
             
@@ -196,8 +182,10 @@ class OphysIngest(dj.Imported):
                             TTL_p = np.append(TTL_p, ii) 
                             TTL_l = np.append(TTL_l, jj)
                             break
+            log.info(f'     Done!')
             
-            # 1. Decode events and the barcode       
+            # 1. Decode events and the barcode  
+            log.info(f'  Decoding Trial Barcode for sync with behavior')
             BarcodeP = TTL_p[TTL_l == 20]         #Barcode starts with a 20ms pulse
             BarcodeBin = np.zeros((len(BarcodeP),20)) # matrix of 0 or 1, size = (trial#,20)
 
@@ -218,7 +206,7 @@ class OphysIngest(dj.Imported):
                 
                 del temp, temp2
                 
-                
+            log.info(f'     Done!')    
             ### Kenta 2022/07/05- added ###
             # BarChar to be directly compared to behavior
             
