@@ -143,7 +143,85 @@ class OphysIngest(dj.Imported):
            
 
             # TODO: --- Insert ophys.TrialEvent and ophys.ActionEvent ---
-            # 1. Decode events and the barcode
+            
+            ### Kenta 2022/07/05- added ###
+            TTLsignal_file = list(ophys_dir.glob('TTL_20*'))[0]
+            TTLsignal = np.fromfile(TTLsignal_file)
+            
+            # Sorting NIDAQ-AI channels
+            if (len(TTLsignal)/1000) / len(TTLts) == 1:
+                TTLsignal1 = TTLsignal
+                plt.figure()
+                plt.plot(TTLsignal)
+                print("Num Analog Channel: 1")
+                
+            elif (len(TTLsignal)/1000) / len(TTLts) == 2:  #this shouldn't happen, though...
+                TTLsignal2 = TTLsignal[1::2]
+                TTLsignal = TTLsignal[0::2]
+                plt.figure()
+                plt.plot(TTLsignal)
+                plt.plot(TTLsignal2)
+                print("Num Analog Channel: 2")
+                    
+            elif (len(TTLsignal)/1000) / len(TTLts) >= 3:  # deinterleaved Channel #2 and #3 are raw licks 
+                TTLsignal1 = TTLsignal[0::3]
+                plt.figure()
+                plt.plot(TTLsignal1,label='Events')
+                
+                if FlagNoRawLick == 0: 
+                    TTLsignal2 = TTLsignal[1::3]
+                    TTLsignal3 = TTLsignal[2::3]
+                    plt.plot(TTLsignal2,label='LickL')
+                    plt.plot(TTLsignal3,label='LickR')    
+                    
+            del TTLsignal 
+            
+            # analoginputs binalize (TTLsignal1 is the deinterleaved TTL signal from BPOD)
+            TTLsignal1[TTLsignal1 < 3] = 0
+            TTLsignal1[TTLsignal1 >= 3] = 1
+            TTLsignal1_shift = np.roll(TTLsignal1, 1)
+            diff = TTLsignal1 - TTLsignal1_shift
+
+            # Sorting
+            TTL_p = [] # position(timing) of TTL pulse onset
+            TTL_l = [] # length of pulse
+
+            for ii in range(len(TTLsignal1)):
+                if diff[ii] == 1:
+                    for jj in range(120): #Max length:40
+                        if ii+jj > len(TTLsignal1)-1:
+                            break
+                        
+                        if diff[ii+jj] == -1:
+                            TTL_p = np.append(TTL_p, ii) 
+                            TTL_l = np.append(TTL_l, jj)
+                            break
+            
+            # 1. Decode events and the barcode       
+            BarcodeP = TTL_p[TTL_l == 20]         #Barcode starts with a 20ms pulse
+            BarcodeBin = np.zeros((len(BarcodeP),20)) # matrix of 0 or 1, size = (trial#,20)
+
+            for ii in range(len(BarcodeP)):
+                for jj in range(20):
+                    BarcodeBin[ii,jj] = TTLsignal1[int(BarcodeP[ii])+30+20*jj+5] # checking the middle of 10ms windows
+
+            BarChar=[]  # This will be the list (size = trialN) of 20 char (eg. "01011001001010010100")  
+
+            for ii in range(len(BarcodeP)):
+                temp=BarcodeBin[ii].astype(int)
+                temp2=''
+                
+                for jj in range(20):
+                    temp2 = temp2 + str(temp[jj])
+                    
+                BarChar.append(temp2)
+                
+                del temp, temp2
+                
+                
+            ### Kenta 2022/07/05- added ###
+            # BarChar to be directly compared to behavior
+            
             # 2. Align barcode to behavior
             # 3. Do insertion
             
