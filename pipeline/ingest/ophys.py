@@ -261,7 +261,7 @@ class OphysIngest(dj.Imported):
                 # Add action events of this trial
                 for action_event_type, times in action_events.items():
                     pass  # TODO: add items to all_actionevent_to_insert
-            
+
             pass  # TODO: insert table ophys.TrialEvent and ophys.ActionEvent
         
             
@@ -309,6 +309,7 @@ def align_phys_to_behav_trials(phys_barcode, behav_barcode, behav_trialN=None):
             closest_idx = np.abs(np.array(behav_trialN_this) - phys_trialN_this).argmin()
             behav_trialN_this = behav_trialN_this[closest_idx:closest_idx+1] #only retaining the closest trialN  (220817KH)
         
+
         if len(behav_trialN_this) == 0 or behav_trialN_this - behav_aligned_last > 1:  # The current continuously aligned block is broken
             # Add a continuously aligned block
             if behav_aligned_last != -999 and phys_aligned_last != -999 and in_a_continous_aligned_block:
