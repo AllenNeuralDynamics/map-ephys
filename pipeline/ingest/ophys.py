@@ -261,7 +261,7 @@ class OphysIngest(dj.Imported):
                 # Add action events of this trial
                 for action_event_type, times in action_events.items():
                     pass  # TODO: add items to all_actionevent_to_insert
-            
+
             pass  # TODO: insert table ophys.TrialEvent and ophys.ActionEvent
         
             
@@ -275,6 +275,7 @@ def align_phys_to_behav_trials(phys_barcode, behav_barcode, behav_trialN=None):
         'phys_not_in_behav': phys trials that are not found in behavioral trials
         'behav_not_in_phys': behavioral trials that are not found in phys trials
         'phys_aligned_blocks': blocks of consecutive phys trials that are aligned with behav
+        'bitCollision': trial numbers with the same bitcode
         'behav_aligned_blocks': blocks of consecutive behav trials that are aligned with phys (each block has the same length as phys_aligned_blocks)
         'perfectly_aligned': whether phys and behav trials are perfectly aligned
         
@@ -292,14 +293,23 @@ def align_phys_to_behav_trials(phys_barcode, behav_barcode, behav_trialN=None):
     behav_not_in_phys = []  # Happens when phys recording starts later or stops earlier than the bpod protocol
     behav_aligned_blocks = []  # A list of well-aligned blocks
     phys_aligned_blocks = []  # A list of well-aligned blocks
+    bitCollision = [] # Add the trial numbers with the same bitcode for restrospective sanity check purpose (220817)
     behav_aligned_last = -999
     phys_aligned_last = -999
     in_a_continous_aligned_block = False # A flag indicating whether the previous phys trial is in a continuous aligned block
                 
     for phys_trialN_this, phys_barcode_this in zip(range(1, len(phys_barcode + ['fake']) + 1), phys_barcode + ['fake']):   # Add a fake value to deal with the boundary effect
         behav_trialN_this = behav_trialN[behav_barcode == phys_barcode_this]
-        assert len(behav_trialN_this) <= 1  # Otherwise bitcode must be problematic
+        #assert len(behav_trialN_this) <= 1  # Otherwise bitcode must be problematic (collision actually happens often.. 220817KH)
         
+        
+        if len(behav_trialN_this) > 1:
+            
+            bitCollision.append(behav_trialN_this)
+            closest_idx = np.abs(np.array(behav_trialN_this) - phys_trialN_this).argmin()
+            behav_trialN_this = behav_trialN_this[closest_idx:closest_idx+1] #only retaining the closest trialN  (220817KH)
+        
+
         if len(behav_trialN_this) == 0 or behav_trialN_this - behav_aligned_last > 1:  # The current continuously aligned block is broken
             # Add a continuously aligned block
             if behav_aligned_last != -999 and phys_aligned_last != -999 and in_a_continous_aligned_block:
@@ -333,5 +343,6 @@ def align_phys_to_behav_trials(phys_barcode, behav_barcode, behav_trialN=None):
             'behav_not_in_phys': behav_not_in_phys,
             'phys_aligned_blocks': phys_aligned_blocks,
             'behav_aligned_blocks': behav_aligned_blocks,
+            'bitCollision': bitCollision,
             'perfectly_aligned': len(phys_not_in_behav + behav_not_in_phys) == 0
             }
