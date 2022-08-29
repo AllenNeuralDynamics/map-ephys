@@ -926,7 +926,11 @@ class BehaviorBpodIngest(dj.Imported):
                     # Nullables and sanity checks
                     align_to_from_stdout = self._get_message(df_behavior_trial, 'laser aligned to')
                     if len(align_to_from_stdout):
-                        this_row['bpod_timer_align_to'] = align_to_from_stdout.values[0].lower()
+                        timer_duration = self._get_message(df_behavior_trial, 'laser timer duration')
+                        if int(timer_duration.iloc[0]) == 1000 and align_to_from_stdout.values[0].lower() == 'After ITI START'.lower():  # New "whole trial" condition
+                            this_row['bpod_timer_align_to'] = 'whole trial'
+                        else:
+                            this_row['bpod_timer_align_to'] = align_to_from_stdout.values[0].lower()
                         
                     timer_offset_from_stdout = self._get_message(df_behavior_trial, 'laser timer offset')
                     if len(timer_offset_from_stdout):
@@ -939,7 +943,8 @@ class BehaviorBpodIngest(dj.Imported):
                         
                     ramping_down_from_stdout = self._get_message(df_behavior_session, 'laser ramping down')
                     if len(ramping_down_from_stdout):
-                        assert ramping_down == float(ramping_down_from_stdout.iloc[0]), 'ERROR: ramping down not consistent!!'
+                        if this_row['bpod_timer_align_to'] != 'whole trial':  # Otherwise it's a hard stop
+                            assert ramping_down == float(ramping_down_from_stdout.iloc[0]), 'ERROR: ramping down not consistent!!'
                     
                     rows['photostim_foraging_trial'].extend([this_row])
                 

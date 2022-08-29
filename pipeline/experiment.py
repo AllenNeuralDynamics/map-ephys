@@ -510,7 +510,7 @@ class PhotostimForagingAlignTo(dj.Lookup):
     bpod_timer_align_to:  varchar(30)
     """
     
-    contents = [('after iti start',), ('before go cue',), ('after go cue',)]
+    contents = [('after iti start',), ('before go cue',), ('after go cue',), ('whole trial',)]
     
 @schema
 class PhotostimForagingTrial(dj.Imported):
