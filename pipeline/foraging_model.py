@@ -86,10 +86,10 @@ class Model(dj.Manual):
         # Original definition from the Dynamic-Foraging repo, using the format: [forager, [para_names], [lower bounds], [higher bounds], desc(optional)]
         MODELS = [
             # No bias
-            ['LossCounting', ['loss_count_threshold_mean', 'loss_count_threshold_std'],
+            ['LossCounting', ['loss_count_threshold_mean', 'loss_count_threshold_std'],  # 0
              [0, 0], [40, 10], 'LossCounting: mean, std, no bias'],
 
-            ['RW1972_epsi', ['learn_rate', 'epsilon'],
+            ['RW1972_epsi', ['learn_rate', 'epsilon'],                                     
              [0, 0], [1, 1], 'SuttonBarto: epsilon, no bias'],
 
             ['RW1972_softmax', ['learn_rate', 'softmax_temperature'],
@@ -101,7 +101,7 @@ class Model(dj.Manual):
             ['LNP_softmax', ['tau1', 'tau2', 'w_tau1', 'softmax_temperature'],
              [1e-3, 1e-1, 0, 1e-2], [15, 40, 1, 15], 'Corrado2005, Iigaya2019: two taus, no bias'],
 
-            ['Bari2019', ['learn_rate', 'forget_rate', 'softmax_temperature'],
+            ['Bari2019', ['learn_rate', 'forget_rate', 'softmax_temperature'],             # 5
              [0, 0, 1e-2], [1, 1, 15], 'RL: chosen, unchosen, softmax, no bias'],
 
             ['Hattori2019', ['learn_rate_rew', 'learn_rate_unrew', 'softmax_temperature'],
@@ -117,7 +117,7 @@ class Model(dj.Manual):
             ['RW1972_softmax', ['learn_rate', 'softmax_temperature', 'biasL'],
              [0, 1e-2, -5], [1, 15, 5], 'SuttonBarto: softmax'],
 
-            ['LNP_softmax', ['tau1', 'softmax_temperature', 'biasL'],
+            ['LNP_softmax', ['tau1', 'softmax_temperature', 'biasL'],                       # 10
              [1e-3, 1e-2, -5], [100, 15, 5], 'Sugrue2004, Corrado2005: one tau'],
 
             ['LNP_softmax', ['tau1', 'tau2', 'w_tau1', 'softmax_temperature', 'biasL'],
@@ -133,7 +133,7 @@ class Model(dj.Manual):
              [0, 0, 0, 1e-2, -5], [1, 1, 1, 15, 5], '(full Hattori) RL: rew, unrew, unchosen, softmax'],
 
             # With bias and choice kernel 
-            ['RW1972_softmax_CK', ['learn_rate', 'softmax_temperature', 'biasL', 'choice_step_size', 'choice_softmax_temperature'],
+            ['RW1972_softmax_CK', ['learn_rate', 'softmax_temperature', 'biasL', 'choice_step_size', 'choice_softmax_temperature'],    # 15
              [0, 1e-2, -5, 0, 1e-2], [1, 15, 5, 1, 20], 'SuttonBarto: softmax, choice kernel'],
 
             ['LNP_softmax_CK', ['tau1', 'softmax_temperature', 'biasL', 'choice_step_size', 'choice_softmax_temperature'],
@@ -149,7 +149,7 @@ class Model(dj.Manual):
              [0, 0, 1e-2, -5, 0, 1e-2], [1, 1, 15, 5, 1, 20], 'RL: rew, unrew, softmax, choice kernel'],
 
             ['Hattori2019_CK', ['learn_rate_rew', 'learn_rate_unrew', 'forget_rate', 'softmax_temperature', 'biasL', 'choice_step_size', 'choice_softmax_temperature'],
-             [0, 0, 0, 1e-2, -5, 0, 1e-2], [1, 1, 1, 15, 5, 1, 20], 'Hattori + choice kernel'],
+             [0, 0, 0, 1e-2, -5, 0, 1e-2], [1, 1, 1, 15, 5, 1, 20], 'Hattori + choice kernel'],             # 20
 
             ['Hattori2019_CK', ['learn_rate_rew', 'learn_rate_unrew', 'forget_rate', 'softmax_temperature', 'biasL', 'choice_step_size', 'choice_softmax_temperature'],
              [0, 0, 0, 1e-2, -5, 1, 1e-2], [1, 1, 1, 15, 5, 1, 20], 'choice_step_size fixed at 1 --> Bari 2019: only the last choice matters'],
