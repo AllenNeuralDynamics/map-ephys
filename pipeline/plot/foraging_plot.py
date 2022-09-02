@@ -1,6 +1,6 @@
 #%%
 import pandas as pd
-from pipeline import lab, experiment, foraging_analysis
+from pipeline import lab, experiment, foraging_analysis, foraging_model
 from pipeline.foraging_model import get_session_history
 from pipeline.plot import foraging_model_plot
 import numpy as np
@@ -477,7 +477,12 @@ def plot_local_efficiency_matching_bias(df_behaviortrial,ax3):
     #%%
     return ax3
 
-def plot_training_summary(use_days_from_start=False):
+def plot_training_summary(use_days_from_start=False, 
+                   highlight = {('FOR01', 'FOR02', 'FOR03', 'FOR04', 'FOR05', 'FOR06', 'FOR07', 'FOR08', 'FOR09', 'FOR10',
+                  'FOR11', 'FOR12', 'FOR13', 'FOR14', 'FOR15'): dict(color='grey', label='Protocol 1.0'),
+                  ('HH18', 'HH17', 'HH16', 'HH15', 'HH14', 'HH13', 'HH12', 'HH11', 
+                   'HH10', 'HH09', 'HH08', 'HH07', 'HH06', 'HH05', 'HH04'): dict(color='b', label='Protocol 2.0'),
+                  }):
     #%%
     sns.set(style="darkgrid", context="talk", font_scale=1.2)
     sns.set_palette("muted")
@@ -488,11 +493,7 @@ def plot_training_summary(use_days_from_start=False):
     # highlight = {('FOR01', 'FOR02', 'FOR03', 'FOR04'): dict(color='b'),
     #              ('FOR11', 'FOR12'): dict(color='g'),
     #              }
-    highlight = {('FOR01', 'FOR02', 'FOR03', 'FOR04', 'FOR05', 'FOR06', 'FOR07', 'FOR08', 'FOR09', 'FOR10',
-                  'FOR11', 'FOR12', 'FOR13', 'FOR14', 'FOR15'): dict(color='grey'),
-                  ('HH18', 'HH17', 'HH16', 'HH15', 'HH14', 'HH13', 'HH12', 'HH11', 
-                   'HH10', 'HH09', 'HH08', 'HH07', 'HH06', 'HH05', 'HH04'): dict(color='b'),
-                  }
+
     # highlight = {('HH18'): dict(marker='o'),
     #             #   ('HH12', 'HH13'): dict(marker='o')
     #               }
@@ -510,14 +511,11 @@ def plot_training_summary(use_days_from_start=False):
     fig3.subplots_adjust(hspace=0.5, wspace=0.3)
 
     # Only mice who started with 2lp task
-    all_foraging_eff = dict()
-    all_foraging_eff_random_seed = dict()
-    all_trial_num = dict()
-    
-    for h_wr in highlight:
-        all_foraging_eff[h_wr] = []
-        all_foraging_eff_random_seed[h_wr] = []
-        all_trial_num[h_wr] = []
+    all_foraging_eff = defaultdict(list)
+    all_foraging_eff_random_seed = defaultdict(list)
+    all_trial_num = defaultdict(list)
+    all_matching_bias = defaultdict(list)
+
     
     for wr_name in all_wr:
         if wr_name in exclude:
@@ -554,7 +552,7 @@ def plot_training_summary(use_days_from_start=False):
             this_mouse_session_stats = this_mouse_session_stats_raw
         
         total_trial_num = this_mouse_session_stats['session_pure_choices_num'].values
-        foraging_eff = this_mouse_session_stats['session_foraging_eff_optimal'].values * 100
+        foraging_eff = this_mouse_session_stats['session_foraging_eff_optimal'].to_numpy(dtype=np.float) * 100
         foraging_eff_random_seed = this_mouse_session_stats['session_foraging_eff_optimal_random_seed'].to_numpy(dtype=np.float) * 100
         early_lick_ratio = this_mouse_session_stats['session_early_lick_ratio'].values * 100
         reward_sum_mean = this_mouse_session_stats['session_mean_reward_sum'].values
@@ -566,16 +564,19 @@ def plot_training_summary(use_days_from_start=False):
         double_dip_miss = this_mouse_session_stats['session_double_dipping_ratio_miss'].to_numpy(dtype=np.float) * 100
         
         matching_idx = this_mouse_session_stats['match_idx']    
-        matching_bias = this_mouse_session_stats['bias']        
+        matching_bias = this_mouse_session_stats['bias']
+        
+        bias_hattori_model = (foraging_model.FittedSessionModel.Param & q_two_lp_foraging_sessions & 'model_id=14' & 'model_param = "biasL"').fetch('fitted_value')
         
         # Plot settings
         plot_setting = None        
         for h_wr in highlight:
             if wr_name in h_wr:
-                plot_setting = {**highlight[h_wr], 'label': wr_name}
+                plot_setting = {**highlight[h_wr]} if wr_name==h_wr[0] else {'color': highlight[h_wr]['color']}
                 all_foraging_eff[h_wr].append(foraging_eff)
                 all_foraging_eff_random_seed[h_wr].append(foraging_eff_random_seed)
                 all_trial_num[h_wr].append(total_trial_num)
+                all_matching_bias[h_wr].append(matching_bias)
         
         if plot_setting is None:
             plot_setting = dict(lw=0.5, color='grey')
@@ -590,7 +591,7 @@ def plot_training_summary(use_days_from_start=False):
         ax2[0,2].plot(foraging_eff, foraging_eff_random_seed, '.')
         
         # -- 3. Matching bias and slope--
-        ax[1,0].plot(x, abs(matching_bias.astype(float)), **plot_setting)
+        ax[1,0].plot(x, (matching_bias.astype(float)), **plot_setting)
         ax[1,2].plot(x, matching_idx, **plot_setting)
         
         # -- 4. Early lick ratio --
@@ -614,7 +615,7 @@ def plot_training_summary(use_days_from_start=False):
     
     ax[0,1].set(xlabel=x_name, title='Foraging efficiency (optimal) %')
     ax[0,2].set(xlabel=x_name, title='Foraging efficiency (optimal_random_seed) %')
-    ax[1,0].set(xlabel=x_name, title='abs(matching bias)', ylim=(-0.1, 5))
+    ax[1,0].set(xlabel=x_name, title='matching bias', ylim=(-5, 5))
     ax[1,1].set(xlabel=x_name, title='Early lick trials %')
     ax[1,2].set(xlabel=x_name, title='Matching slope', ylim=(-0.1,1.1))
     
@@ -666,9 +667,13 @@ def plot_training_summary(use_days_from_start=False):
     ax2[0,1].set(xlabel='Matching slope', ylabel='Foraging efficiency (optimal) %', xlim=(0,1), ylim=(50,110))
 
 
-    # Average training traces
-    fig4 = plt.figure(figsize=(10, 4))
-    ax4 = fig4.subplots(1,3)    
+    # ====== 4.0 Average training traces =====
+    fig4 = plt.figure(figsize=(14, 10)) # , constrained_layout=True)
+    ax4 = fig4.subplots(2, 2)
+    ax4[0, 0].set(ylabel='Foraging efficiency')
+    ax4[0, 1].set(ylabel='Foraging efficiency\n(actual random seed)')
+    ax4[1, 0].set(ylabel='Total finished trial')
+    ax4[1, 1].set(xlabel='Session', ylabel='Matching bias')
     
     for h_wr in highlight:
         # Pack data
@@ -676,7 +681,8 @@ def plot_training_summary(use_days_from_start=False):
                                 len(all_foraging_eff[h_wr]))) * np.nan
         this_h_all_eff_random_seed = this_h_all_eff.copy()
         this_h_all_trial_num = this_h_all_eff.copy()
-        
+        this_h_all_matching_bias = this_h_all_eff.copy()
+       
         for i, this in enumerate(all_foraging_eff[h_wr]):
             this_h_all_eff[:len(this), i] = this
             
@@ -686,19 +692,28 @@ def plot_training_summary(use_days_from_start=False):
         for i, this in enumerate(all_trial_num[h_wr]):
             this_h_all_trial_num[:len(this), i] = this
             
+        for i, this in enumerate(all_matching_bias[h_wr]):
+            this_h_all_matching_bias[:len(this), i] = this
+
         # nanmean and std
         this_h_mean = np.nanmean(this_h_all_eff, axis=1)
-        this_h_sem = np.nanstd(this_h_all_eff, axis=1) / np.sqrt(this_h_all_eff.shape[1])
+        this_h_sem = np.nanstd(this_h_all_eff, axis=1) / np.sqrt(np.sum(~np.isnan(this_h_all_eff), axis=1))
         this_h_random_seed_mean = np.nanmean(this_h_all_eff_random_seed, axis=1)
-        this_h_random_seed_sem = np.nanstd(this_h_all_eff_random_seed, axis=1) / np.sqrt(this_h_all_eff_random_seed.shape[1])
+        this_h_random_seed_sem = np.nanstd(this_h_all_eff_random_seed, axis=1) / np.sqrt(np.sum(~np.isnan(this_h_all_eff_random_seed), axis=1))
         this_h_trial_num_mean = np.nanmean(this_h_all_trial_num, axis=1)
-        this_h_trial_num_sem = np.nanstd(this_h_all_trial_num, axis=1) / np.sqrt(this_h_all_trial_num.shape[1])
+        this_h_trial_num_sem = np.nanstd(this_h_all_trial_num, axis=1) / np.sqrt(np.sum(~np.isnan(this_h_all_trial_num), axis=1))
+        this_h_matching_bias_mean = np.nanmean(this_h_all_matching_bias, axis=1)
+        this_h_matching_bias_sem = np.nanstd(this_h_all_matching_bias, axis=1) / np.sqrt(np.sum(~np.isnan(this_h_all_matching_bias), axis=1))
         
         # plot
-        ax4[0].errorbar(np.r_[0:len(this_h_mean)] + 1, y=this_h_mean, yerr=this_h_sem, **highlight[h_wr])
-        ax4[1].errorbar(np.r_[0:len(this_h_random_seed_mean)] + 1, y=this_h_random_seed_mean, yerr=this_h_random_seed_sem, **highlight[h_wr])
-        ax4[2].errorbar(np.r_[0:len(this_h_trial_num_mean)] + 1, y=this_h_trial_num_mean, yerr=this_h_trial_num_sem, **highlight[h_wr])
-        
+        plot_setting = {'color': highlight[h_wr]['color'], 'label': f"{highlight[h_wr]['label']} ({len(h_wr)} mice)"}
+        ax4[0, 0].errorbar(np.r_[0:len(this_h_mean)] + 1, y=this_h_mean, yerr=this_h_sem, **plot_setting)
+        ax4[0, 1].errorbar(np.r_[0:len(this_h_random_seed_mean)] + 1, y=this_h_random_seed_mean, yerr=this_h_random_seed_sem, **plot_setting)
+        ax4[1, 0].errorbar(np.r_[0:len(this_h_trial_num_mean)] + 1, y=this_h_trial_num_mean, yerr=this_h_trial_num_sem, **plot_setting)
+        ax4[1, 1].errorbar(np.r_[0:len(this_h_matching_bias_mean)] + 1, y=this_h_matching_bias_mean, yerr=this_h_matching_bias_sem, **plot_setting)
+    
+    ax4[1, 1].legend()
+    ax4[1, 1].axhline(0, c='k', ls='--')
 
     #%%
     
