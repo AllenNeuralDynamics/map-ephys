@@ -214,3 +214,44 @@ def _extract_one_stim_dur(stim_durs):
         return float(min(stim_durs))
     else:
         return float(stim_durs[0]) if len(stim_durs) == 1 and stim_durs[0] else default_stim_dur
+
+
+def seaborn_style():
+    """
+    Set seaborn style for plotting figures
+    """
+    sns.set(style="ticks", context="paper", font_scale=1.4)
+    # sns.set(style="ticks", context="talk", font_scale=2)
+    sns.despine(trim=True)
+    matplotlib.rcParams['pdf.fonttype'] = 42
+    matplotlib.rcParams['ps.fonttype'] = 42
+
+
+def moving_average(a, n=3) :
+    ret = np.nancumsum(a, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n
+
+
+def plot_corr(x, y, **kws):
+    (r, p) = pearsonr(x, y)
+    ax = plt.gca()
+    title_obj = ax.set_title("r = %.3f, p = %.4f " % (r, p), fontsize = 8)
+    if p < 0.05:
+        plt.setp(title_obj, color='r')
+        
+
+def set_label(h, ii, jj, model_notations):
+    '''
+    (ii, jj) are the subplot location
+    '''
+    if jj == 0:
+        h.set_yticklabels(model_notations, rotation = 0)
+    else:
+        h.set_yticklabels('')
+        
+    if ii == 0:
+        h.set_xticklabels(model_notations, rotation = 45, ha = 'left')
+        h.xaxis.tick_top()
+    else:
+        h.set_xticklabels('')

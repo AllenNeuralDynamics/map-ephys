@@ -35,28 +35,3 @@ def choose_ps(ps):
     '''
     ps = ps/np.sum(ps)
     return np.max(np.argwhere(np.hstack([-1e-16, np.cumsum(ps)]) < np.random.rand()))
-
-
-def seaborn_style():
-    """
-    Set seaborn style for plotting figures
-    """
-    sns.set(style="ticks", context="paper", font_scale=1.4)
-    # sns.set(style="ticks", context="talk", font_scale=2)
-    sns.despine(trim=True)
-    matplotlib.rcParams['pdf.fonttype'] = 42
-    matplotlib.rcParams['ps.fonttype'] = 42
-
-
-def moving_average(a, n=3) :
-    ret = np.nancumsum(a, dtype=float)
-    ret[n:] = ret[n:] - ret[:-n]
-    return ret[n - 1:] / n
-
-
-def plot_corr(x, y, **kws):
-    (r, p) = pearsonr(x, y)
-    ax = plt.gca()
-    title_obj = ax.set_title("r = %.3f, p = %.4f " % (r, p), fontsize = 8)
-    if p < 0.05:
-        plt.setp(title_obj, color='r')

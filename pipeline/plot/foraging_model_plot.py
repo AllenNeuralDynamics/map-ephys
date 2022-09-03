@@ -5,7 +5,7 @@ Created on Sat Mar 21 13:47:05 2020
 @author: Han
 """
 import pdb
-
+#%%
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -15,9 +15,9 @@ from statannot import add_stat_annotation
 from matplotlib.patches import Rectangle
 from matplotlib.gridspec import GridSpec
 
-from pipeline import lab, foraging_model, util
-from ..model.util import moving_average
-
+from pipeline import lab, foraging_model, util, foraging_analysis
+from pipeline.plot.util import moving_average
+#%%
 
 # plt.rcParams.update({'font.size': 14, 'figure.dpi': 150})
 # sns.set(context='talk')
@@ -144,7 +144,7 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
         
     # -- Plot actual choice and reward history --
     with sns.plotting_context("notebook", font_scale=1, rc={'style': 'ticks'}):
-        ax = plot_session_lightweight([choice_history, reward_history, p_reward], smooth_factor=smooth_factor, ax=ax)
+        fig, ax = plot_session_lightweight([choice_history, reward_history, p_reward], smooth_factor=smooth_factor, ax=ax)
 
         # -- Plot fitted choice probability etc. --
         model_str =  (f'Model comparison: {(foraging_model.ModelComparison & q_model_comparison).fetch1("desc")}'
@@ -207,13 +207,13 @@ def plot_session_lightweight(data, fitted_data=None, smooth_factor=5, base_color
         xx = np.nonzero(rewarded_trials)[0] + 1
         yy = 0.5 + (choice_history[0, rewarded_trials] - 0.5) * 1.4
         ax.plot(*(xx, yy) if not vertical else [*(yy, xx)], 
-                '_', color='black', markersize=10, markeredgewidth=2)
+                '|' if not vertical else '_', color='black', markersize=10, markeredgewidth=2)
 
         # Unrewarded trials
         xx = np.nonzero(unrewarded_trials)[0] + 1
         yy = 0.5 + (choice_history[0, unrewarded_trials] - 0.5) * 1.4
         ax.plot(*(xx, yy) if not vertical else [*(yy, xx)],
-                '_', color='gray', markersize=6, markeredgewidth=1)
+                '|' if not vertical else '_', color='gray', markersize=6, markeredgewidth=1)
 
         # Ignored trials
         xx = np.nonzero(ignored_trials)[0] + 1
@@ -253,6 +253,157 @@ def plot_session_lightweight(data, fitted_data=None, smooth_factor=5, base_color
 
     return fig, ax
 
+
+def plot_mouse_fitting_results(subject_id, model_comparison_idx=0, sort='aic',
+                               model_to_plot_history=14, 
+                               para_to_plot_group=[['learn_rate_rew', 'learn_rate_unrew', 'forget_rate'], ['softmax_temperature'], ['biasR']],
+                               if_hattori_Fig1I=False):
+        
+    '''
+    Re-implement my legendary code in DJ pipeline for plotting the model fitting results over time of one mouse 
+    The original code: https://github.com/hanhou/Dynamic-Foraging/blob/64f628d7beddb783a733540f2b278af59fd2fdf7/utils/run_fit_behavior.py#L191
+    
+    sort: {'aic', 'bic', 'cross_validation_test'}
+    para_to_plot: parameter groups to plot history of
+    '''
+    
+    #%% === Fetching data ===
+    h2o = (lab.WaterRestriction & {'subject_id': subject_id}).fetch1('water_restriction_number')
+    q_model_comparison = foraging_model.FittedSessionModelComparison() & {'subject_id': subject_id, 'model_comparison_idx': model_comparison_idx}
+    model_ids_for_comparison = (foraging_model.ModelComparison.Competitor() & {'model_comparison_idx': model_comparison_idx}
+                                ).fetch('model_id', order_by='model_id')
+    n_models = len(model_ids_for_comparison)
+    sess_stats = pd.DataFrame((q_model_comparison * foraging_analysis.SessionStats()).fetch('session', 'session_pure_choices_num', 
+                                                                               'session_foraging_eff_optimal', 
+                                                                               'session_foraging_eff_optimal_random_seed',
+                                                                               as_dict=True))
+    
+    # Fill in group_result, same format as my standalone code
+    #   SessStats
+    group_result = dict()
+    group_result['session_number'] = sess_stats['session']
+    group_result["n_trials"] = sess_stats['session_pure_choices_num']
+    group_result['xlabel'] = [f'{sess} ({trial_num})' for sess, trial_num in zip(sess_stats['session'], sess_stats['session_pure_choices_num'])]
+    group_result['foraging_efficiency'] = list(sess_stats['session_foraging_eff_optimal_random_seed'].astype(float))
+    if any(np.isnan(group_result['foraging_efficiency'])):
+        group_result['foraging_efficiency'] = list(sess_stats['session_foraging_eff_optimal'].astype(float))
+    
+    #   Pred accuracy
+    group_result['session_best'] = (q_model_comparison * foraging_model.FittedSessionModelComparison.BestModel
+                                    ).fetch(f'best_{sort}')
+    group_result['model_weight_AIC'] = (q_model_comparison * foraging_model.FittedSessionModelComparison.RelativeStat
+                                        ).fetch("model_weight_aic", order_by=("model_id", "session")).reshape(n_models, -1)
+    
+    pred_accu = (q_model_comparison * foraging_model.FittedSessionModel & {'model_id': model_to_plot_history}
+                 ).fetch('cross_valid_accuracy_test', 'cross_valid_accuracy_test_bias_only')
+    group_result['prediction_accuracy_CV_test'], group_result['prediction_accuracy_CV_test_bias_only'] = pred_accu
+    
+    #   Fitted parameters
+    group_result['fitted_paras'] = {}
+    for para_group in para_to_plot_group:
+        for para in para_group:
+            if para == 'biasR':
+                group_result['fitted_paras'][para] = - (q_model_comparison * foraging_model.FittedSessionModel.Param & 
+                                                        {'model_id': model_to_plot_history, 'model_param': 'biasL'}
+                                                        ).fetch('fitted_value', order_by='session')
+            else:
+                group_result['fitted_paras'][para] = (q_model_comparison * foraging_model.FittedSessionModel.Param & 
+                                                     {'model_id': model_to_plot_history, 'model_param': para}
+                                                     ).fetch('fitted_value', order_by='session')
+    
+        
+    # Update notations
+    model_notations = (foraging_model.Model & q_model_comparison).fetch('model_notation')
+    model_notations = [f'({i}) {m}' for i, m in enumerate(model_notations)]
+
+    #%% ===  Do plotting ===
+    # plt.close('all')
+    sns.set(context = 'talk')
+    plt.rcParams.update({'font.size': 8, 'figure.dpi': 150})
+
+    # --- 1. Session-wise model weight ---
+    fig_model_comp = plt.figure(figsize=(15, 9 / 15 * n_models), dpi = 150)
+    gs = GridSpec(1, 20, wspace = 0.1, bottom = 0.15, top = 0.9, left = 0.15, right = 0.95)
+    fig_model_comp.text(0.01,0.95,'%s' % (h2o), fontsize = 20)
+
+    ax = fig_model_comp.add_subplot(gs[0: round(20)])
+    sns.heatmap(group_result['model_weight_AIC'], annot = True, fmt=".2f", square = False, cbar = False, cbar_ax = [0,1], ax=ax)
+    ax.set(xticks= np.r_[0:len(group_result['xlabel'])])
+    ax.set_xticklabels(labels=group_result['xlabel'], rotation=-90, ha='left')
+    ax.set_yticklabels(model_notations, rotation=0)
+
+    for ss in range(len(group_result["n_trials"])):
+        patch = Rectangle((ss, group_result['session_best'][ss]),1,1, color = 'dodgerblue', linewidth = 4, fill= False)
+        ax.add_artist(patch)
+        
+            
+    #%% -- 2 Prediction accuracy (cross-validation), and foraging efficiency --
+    fig_pred_acc = plt.figure(figsize=(10, 5), dpi = 150)
+    gs = GridSpec(1, 1, wspace = 0.2, bottom = 0.15, top = 0.9, left = 0.07, right = 0.95)
+
+    ax = fig_pred_acc.add_subplot(gs[0, 0], sharey = None)    
+    plt.axhline(0.5, c = 'k', ls = '--')
+    
+    x = group_result['session_number']
+    marker_sizes = (group_result["n_trials"]/100 * 2)**2
+
+    # # LPT_AIC
+    # x = group_result['session_number']
+    # y = group_result['LPT_AIC'][overall_best-1,:]
+    # plt.plot(x, y, 'b',label = 'likelihood per trial (AIC)', linewidth = 0.7)
+    # plt.scatter(x, y, color = 'b', s = marker_sizes, alpha = 0.9)
+    # plt.scatter(x[np.logical_not(session_best_matched)], y[np.logical_not(session_best_matched)], 
+    #             facecolors='none', edgecolors = 'b', s = marker_sizes, alpha = 0.7)
+
+    # Prediction accuracy NONCV
+    y = group_result['prediction_accuracy_CV_test']
+    plt.plot(x, y, 'k',label = 'Pred. acc. 2-fold CV', linewidth = 0.7)
+    plt.scatter(x, y, color = 'k', s = marker_sizes, alpha = 0.9)
+    
+    # Prediction accuracy bias only
+    y = group_result['prediction_accuracy_CV_test_bias_only']
+    plt.plot(x, y, 'gray', ls = '--', label = 'Pred. acc. bias only 2-fold CV', linewidth = 0.7)
+    plt.scatter(x, y, color = 'gray', s = marker_sizes, alpha = 0.9)
+
+    # Foraging efficiency
+    y = group_result['foraging_efficiency']
+    plt.plot(x, y, 'g', ls = '-', label = 'foraging efficiency', linewidth = 0.7)
+    plt.scatter(x, y, color = 'g', s = marker_sizes, alpha = 0.9, marker = '^')
+    
+    ax.set_ylabel('Likelihood per trial (AIC)')   
+    
+    plt.title(f'Model: {model_notations[model_to_plot_history]}')
+    plt.xlabel('Session number')
+    plt.legend()    
+
+    #%% -- 3. Fitted paras over sessions --
+    para_plot_color = ('k', 'g', 'r', 'c')
+        
+    fig_fitted_par = plt.figure(figsize=(15, 5), dpi = 150)
+    gs = GridSpec(1, len(para_to_plot_group), wspace = 0.2, bottom = 0.15, top = 0.85, left = 0.05, right = 0.95)
+
+    for pp, ppg in enumerate(para_to_plot_group):
+        
+        x = group_result['session_number']
+        y = np.array([group_result['fitted_paras'][para] for para in ppg])
+        
+        ax = fig_fitted_par.add_subplot(gs[0, pp : pp + 1], sharey = None)
+        ax.set_prop_cycle(color = para_plot_color)
+        
+        plt.plot(x.T, y.T, linewidth = 0.7)
+        
+        for ny, yy in enumerate(y):
+            ax.scatter(x, yy, s = marker_sizes, alpha = 0.9)
+
+        plt.xlabel('Session number')
+        if pp == 0: 
+            ax.set_ylabel('Fitted parameters')
+        plt.legend([(foraging_model.ModelParam & {'model_param': para}).fetch1('param_notation') for para in ppg], 
+                   bbox_to_anchor=(0,1.02,1,0.2), loc='lower center', ncol = 4)    
+        plt.axhline(0, c = 'k', ls = '--')
+    
+    #%% plt.pause(10)      
+    return fig_model_comp, fig_pred_acc, fig_fitted_par
 
 # ---- Helper funcs -----
 
