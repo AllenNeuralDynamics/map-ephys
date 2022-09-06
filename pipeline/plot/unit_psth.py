@@ -122,16 +122,16 @@ def _plot_spike_raster_foraging(ipsi, contra, offset=0, vlines=[], shade_bar=Non
     contra_tr_max = contra_tr.max() if contra_tr.size > 0 else 0
 
     start_at = offset
-    ax.plot(contra['raster'][0], contra_tr + start_at + 1, 'b.', markersize=1)
-    ax.axhline(y=start_at, linestyle='-', color='k')
+    ax.plot(contra['raster'][0], contra_tr + start_at + 1, 'b.', markersize=1.5)
+    ax.axhline(y=start_at, linestyle='-', color='k', lw=.5)
     start_at += contra_tr_max
 
-    ax.plot(ipsi['raster'][0], ipsi_tr + start_at, 'r.', markersize=1)
-    ax.axhline(y=start_at, linestyle='-', color='k')
+    ax.plot(ipsi['raster'][0], ipsi_tr + start_at, 'r.', markersize=1.5)
+    ax.axhline(y=start_at, linestyle='-', color='k', lw=.5)
 
     for x in vlines:
-        ax.axvline(x=x, linestyle='--', color='k')
-    ax.axvline(x=0, linestyle='-', color='k', lw=1.5)
+        ax.axvline(x=x, linestyle='--', color='k', lw=.7)
+    ax.axvline(x=0, linestyle='-', color='k', lw=1)
 
     if shade_bar is not None:
         ax.axvspan(shade_bar[0], shade_bar[0] + shade_bar[1], alpha=0.3, color='royalblue')

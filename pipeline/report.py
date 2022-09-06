@@ -1,3 +1,4 @@
+#%%
 import os
 import datajoint as dj
 import numpy as np
@@ -8,7 +9,7 @@ import uuid
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
+from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from mpl_toolkits.mplot3d import Axes3D
 import seaborn as sns
 
@@ -24,6 +25,7 @@ from pipeline.plot import behavior_plot, unit_characteristic_plot, unit_psth, hi
 from pipeline.plot.util import _plot_with_sem, _jointplot_w_hue
 from pipeline.util import _get_trial_event_times
 from pipeline.mtl_analysis import helper_functions as mtl_plot
+#%%
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -779,8 +781,10 @@ class UnitLevelForagingEphysReport(dj.Computed):
     unit_foraging_mlr: filepath@report_store  # multivariate linear regression result for a particular unit
     unit_foraging_psth: filepath@report_store # psth plots for a particular unit
     """
-
-    key_source = ephys.Unit & foraging_model.FittedSessionModel
+    
+    foraging_sessions = (experiment.Session * lab.WaterRestriction) & (experiment.BehaviorTrial & 'task_protocol = 100')  # Two-lickport foraging
+    all_unit_qc = (ephys.Unit * ephys.ClusterMetric * ephys.UnitStat) & foraging_sessions & 'presence_ratio > 0.95' & 'amplitude_cutoff < 0.1' & 'isi_violation < 0.5' & 'unit_amp > 70'
+    key_source = ephys.Unit & foraging_model.FittedSessionModel & all_unit_qc.proj()
 
     def make(self, key):
         if not ephys.check_unit_criteria(key):
@@ -833,6 +837,90 @@ class UnitLevelForagingEphysReport(dj.Computed):
         plt.close('all')
         self.insert1({**key, **fig_dict})
 
+@schema
+class UnitLevelForagingEphysReportAllInOne(dj.Computed):
+    definition = """
+    -> ephys.Unit
+    ---
+    unit_foraging_all_in_one: filepath@report_store  # all in one figure (Jeremiah)
+    """
+    
+    foraging_sessions = (experiment.Session * lab.WaterRestriction) & (experiment.BehaviorTrial & 'task_protocol = 100')  # Two-lickport foraging
+    all_unit_qc = ((ephys.Unit * ephys.ClusterMetric * ephys.UnitStat) & foraging_sessions 
+                   & 'presence_ratio > 0.95' & 'amplitude_cutoff < 0.1' & 'isi_violation < 0.5' & 'unit_amp > 70')
+    key_source = ephys.Unit & foraging_model.FittedSessionModel & all_unit_qc.proj()
+
+    def make(self, key):
+        if not ephys.check_unit_criteria(key):
+            raise FailedUnitCriteriaError(f'Unit {key} did not meet selection criteria')
+
+        water_res_num, sess_date = get_wr_sessdatetime(key)
+        units_dir = store_stage / water_res_num / sess_date / str(key['insertion_number']) / 'units'
+        units_dir.mkdir(parents=True, exist_ok=True)
+
+        #%%
+        date, imec, unit = '2021-04-18', 0, 541
+        key = (ephys.Unit() & (experiment.Session & 'session_date = "2021-04-18"' & 'subject_id = 473361') & {'insertion_number': imec + 1, 'unit_uid': unit}).fetch1("KEY")
+
+        #%%
+        
+        fig = plt.figure(figsize=(30, 20), dpi=300, constrained_layout=0)
+        gs0 = fig.add_gridspec(2, 2, height_ratios=(1, 5), width_ratios=(1, 1))
+
+        axs_meta = gs0[0, :].subgridspec(2, 8)
+        axs_psth = gs0[1, 0].subgridspec(10, 6)
+        axs_tuning = gs0[1, 1].subgridspec(5, 2, width_ratios=[5, 1])
+        
+        #for ax in (*axs_meta, *axs_psth, *axs_tuning): fig.add_subplot(ax)        
+        
+
+        best_model = (foraging_model.FittedSessionModelComparison.BestModel & key
+                      & 'model_comparison_idx=1').fetch1('best_aic')
+        align_types = ['trial_start', 'go_cue', 'first_lick_after_go_cue',
+                       'iti_start', 'next_trial_start']
+        latent_variables = ['relative_action_value_ic', 'total_action_value', 'rpe']
+        # === 1. meta info (spike QC etc.) ===
+        
+        # === 2. raster & psth ===
+        # --- 2.1 choice & outcome ---
+        unit_psth.plot_unit_psth_choice_outcome(
+            unit_key=key,
+            align_types=align_types,
+            axs=np.array([fig.add_subplot(axs_psth[row_idx, col_idx])
+                          for row_idx, col_idx in itertools.product(range(2, 4), range(5))]).reshape(2, 5))
+
+        # --- 2.2 deltaQ, sumQ, RPE ---
+        index_range = range(4, 7)
+        for idx, latent_variable in zip(index_range, latent_variables):
+            unit_psth.plot_unit_psth_latent_variable_quantile(
+                unit_key=key,
+                axs=np.array([fig.add_subplot(axs_psth[row_idx, col_idx])
+                              for row_idx, col_idx in itertools.product(range(idx, idx+1), range(5))]).reshape(1, 5),
+                model_id=best_model,
+                align_types=align_types,
+                latent_variable=latent_variable)
+            
+        # === 3. period selectivity ===
+
+        unit_info = (f'{water_res_num}, {sess_date}, imec {key["insertion_number"] - 1}\n'
+                     f'Unit #: {key["unit"]}, '
+                     f'{(((ephys.Unit & key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")} \n')
+        fig3.text(0.5, 9, unit_info)
+        
+        
+        #%%
+        
+        # ---- Save fig and insert ----
+        fn_prefix = f'{water_res_num}_{sess_date}_{key["insertion_number"]}_{key["clustering_method"]}_u{key["unit"]:03}_'
+        fig_dict = save_figs(
+            (fig),
+            ('unit_foraging_all_in_one'),
+            units_dir, fn_prefix)
+ 
+        plt.close('all')
+        self.insert1({**key, **fig_dict})
+
+        pass
         
 # ============================= PROJECT LEVEL ====================================
 
