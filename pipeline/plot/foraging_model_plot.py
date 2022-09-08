@@ -148,9 +148,9 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
 
         # -- Plot fitted choice probability etc. --
         model_str =  (f'Model comparison: {(foraging_model.ModelComparison & q_model_comparison).fetch1("desc")}'
-                      f'(n = {len(results)})') if specified_model_ids is None else ''
-        plt.gcf().text(0.05, 0.95, f'{(lab.WaterRestriction & sess_key).fetch1("water_restriction_number")}, '
-                                    f'session {sess_key["session"]}, {results.n_trials[0]} trials\n' + model_str)
+                        f'(n = {len(results)})') if specified_model_ids is None else ''
+        # plt.gcf().text(0.05, 0.95, f'{(lab.WaterRestriction & sess_key).fetch1("water_restriction_number")}, '
+        #                             f'session {sess_key["session"]}, {results.n_trials[0]} trials\n' + model_str)
         
         for idx, result in results_to_plot.iterrows():
             trial, right_choice_prob = (foraging_model.FittedSessionModel.TrialLatentVariable
@@ -245,11 +245,11 @@ def plot_session_lightweight(data, fitted_data=None, smooth_factor=5, base_color
         else:
             ax.set_xticks([0, 1])
             ax.set_xticklabels(['Left', 'Right'])
-        
-        # ax.set_xlim(0,300)
+    
+    # ax.set_xlim(0,300)
 
-        # fig.tight_layout()
-        sns.despine(trim=True)
+    # fig.tight_layout()
+    sns.despine(trim=True, ax=ax)
 
     return fig, ax
 

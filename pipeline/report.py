@@ -864,12 +864,12 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
 
         #%%
         
-        fig = plt.figure(figsize=(30, 20), dpi=300, constrained_layout=0)
-        gs0 = fig.add_gridspec(2, 2, height_ratios=(1, 5), width_ratios=(1, 1))
+        fig = plt.figure(figsize=(60, 40), dpi=300, constrained_layout=0)
+        gs0 = fig.add_gridspec(2, 2, height_ratios=(1, 5), width_ratios=(1.3, 1), right=0.95)
 
-        axs_meta = gs0[0, :].subgridspec(2, 8)
-        axs_psth = gs0[1, 0].subgridspec(10, 6)
-        axs_tuning = gs0[1, 1].subgridspec(5, 2, width_ratios=[5, 1])
+        gs_meta = gs0[0, :].subgridspec(2, 8)
+        gs_psth = gs0[1, 0].subgridspec(10, 6)
+        gs_tuning = gs0[1, 1].subgridspec(5, 2, width_ratios=[5, 1])
         
         #for ax in (*axs_meta, *axs_psth, *axs_tuning): fig.add_subplot(ax)        
         
@@ -881,12 +881,21 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
         latent_variables = ['relative_action_value_ic', 'total_action_value', 'rpe']
         # === 1. meta info (spike QC etc.) ===
         
+        # Add unit info
+        unit_info = (f'{(lab.WaterRestriction & key).fetch1("water_restriction_number")}, '
+                    f'{(experiment.Session & key).fetch1("session_date")}, '
+                    f'imec {key["insertion_number"]-1}\n'
+                    f'Unit #: {key["unit"]}, '
+                    f'{(((ephys.Unit & key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")}'
+                    )
+        fig.text(0.1, 0.9, unit_info)
+        
         # === 2. raster & psth ===
         # --- 2.1 choice & outcome ---
         unit_psth.plot_unit_psth_choice_outcome(
             unit_key=key,
             align_types=align_types,
-            axs=np.array([fig.add_subplot(axs_psth[row_idx, col_idx])
+            axs=np.array([fig.add_subplot(gs_psth[row_idx, col_idx])
                           for row_idx, col_idx in itertools.product(range(2, 4), range(5))]).reshape(2, 5))
 
         # --- 2.2 deltaQ, sumQ, RPE ---
@@ -894,18 +903,24 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
         for idx, latent_variable in zip(index_range, latent_variables):
             unit_psth.plot_unit_psth_latent_variable_quantile(
                 unit_key=key,
-                axs=np.array([fig.add_subplot(axs_psth[row_idx, col_idx])
+                axs=np.array([fig.add_subplot(gs_psth[row_idx, col_idx])
                               for row_idx, col_idx in itertools.product(range(idx, idx+1), range(5))]).reshape(1, 5),
                 model_id=best_model,
                 align_types=align_types,
                 latent_variable=latent_variable)
             
         # === 3. period selectivity ===
-
-        unit_info = (f'{water_res_num}, {sess_date}, imec {key["insertion_number"] - 1}\n'
-                     f'Unit #: {key["unit"]}, '
-                     f'{(((ephys.Unit & key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")} \n')
-        fig3.text(0.5, 9, unit_info)
+        independent_variable=['relative_action_value_ic', 'total_action_value', 'rpe']
+        axs = {'choice_history': fig.add_subplot(gs_tuning[0, 0]),
+               'period_firing': fig.add_subplot(gs_tuning[1, 0]),}
+        for n, iv in enumerate(independent_variable):
+            axs['time_' + iv] = fig.add_subplot(gs_tuning[2 + n, 0])
+            axs['fit_' + iv] = fig.add_subplot(gs_tuning[2 + n, 1])
+        
+        unit_psth.plot_unit_period_tuning(unit_key=key,
+                                          independent_variable=independent_variable,
+                                          model_id=None,  # Best model of this session
+                                          axs=axs)
         
         
         #%%

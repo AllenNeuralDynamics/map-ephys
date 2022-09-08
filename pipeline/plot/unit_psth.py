@@ -252,7 +252,10 @@ def plot_unit_psth_choice_outcome(unit_key={'subject_id': 473361, 'session': 47,
     no_early_lick = '_noearlylick' if if_exclude_early_lick else ''
 
     fig = None
+    no_titles = False
+    
     if axs is None:
+        no_titles = True    
         fig = plt.figure(figsize=(len(align_types)/5 * 25, (1+if_raster)/2 * 9))
         axs = fig.subplots(1 + if_raster, len(align_types), sharey='row', sharex='col')
         axs = np.atleast_2d(axs).reshape((1+if_raster, -1))
@@ -304,7 +307,8 @@ def plot_unit_psth_choice_outcome(unit_key={'subject_id': 473361, 'session': 47,
         _plot_psth_foraging(ipsi_miss_unit_psth, contra_miss_unit_psth,
                             vlines=[], ax=ax_psth, xlim=xlim, label='norew', linestyle='--')
 
-        ax_psth.set(title=f'{align_type}')
+        if not no_titles:
+            ax_psth.set(title=f'{align_type}')
         if ax_i > 0:
             ax_psth.spines['left'].set_visible(False)
             ax_psth.get_yaxis().set_visible(False)
@@ -330,7 +334,7 @@ def plot_unit_psth_choice_outcome(unit_key={'subject_id': 473361, 'session': 47,
 
 
 def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'session': 47, 'insertion_number': 1, 'clustering_method': 'kilosort2', 'unit': 541},
-                                            model_id=11, n_quantile=5,
+                                            model_id=14, n_quantile=5,
                                             align_types=['trial_start', 'go_cue', 'first_lick_after_go_cue', 'iti_start', 'next_trial_start'],
                                             latent_variable='contra_action_value',
                                             axs=None, title=''):
@@ -362,7 +366,10 @@ def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'ses
     n_quantile = len(df['quantile_rank'].unique())    # Just in case qcut has 'dropped'
 
     fig = None
+    no_titles = False
+
     if axs is None:
+        no_titles = True
         fig = plt.figure(figsize=(len(align_types)/5 * 25, 5))
         axs = fig.subplots(1, len(align_types), sharey='row', sharex='col')
         axs = np.atleast_2d(axs).reshape((1, -1))
@@ -412,7 +419,8 @@ def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'ses
                                                          )
 
         _plot_psths(psths, kargs, ax=ax_psth, xlim=xlim, vlines=period_starts_all)
-        ax_psth.set(title=f'{align_type}')
+        if not no_titles:
+            ax_psth.set(title=f'{align_type}')
 
     _set_same_horizonal_aspect_ratio(axs[0, :], xlims)
     ax_psth.legend(fontsize=10, ncol=2)
@@ -422,25 +430,27 @@ def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'ses
 
 def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'insertion_number': 1, 'clustering_method': 'kilosort2', 'unit': 541},
                             period='iti_all',
-                            independent_variable = ['contra_action_value', 'ipsi_action_value', 'rpe'],
-                            model_id=None):
+                            independent_variable=['relative_action_value_ic', 'total_action_value', 'rpe'],
+                            model_id=None,
+                            axs=None):
     """
     Plot multivariate linear regression of firing rate of given unit, in given period, using given independent variables
     @param unit_key:
     @param period:
     @param independent_variable:
     @param model_id: if None, use the best aic model in all models
-    @return: figure
+    @param axs: dictionary of {'choice_history', 'period_firing', 'time_{ivs}', 'fit_{ivs}'}
+    
+    @return: two figures if no axs are provided
     """
-
     # Period activity
     period_activity = psth_foraging.compute_unit_period_activity(unit_key, period)
 
     # Latent variables
     if model_id is None:
         model_id = (foraging_model.FittedSessionModelComparison.BestModel & unit_key & 'model_comparison_idx=0').fetch1('best_aic')
-    all_iv = _get_unit_independent_variable(unit_key, model_id=model_id)
 
+    all_iv = _get_unit_independent_variable(unit_key, model_id=model_id)
     #TODO Align ephys event with behavior using bitcode! (and save raw bitcodes)
     trial = all_iv.trial   # Original trial numbers but without ignored trials
     trial_with_ephys = trial <= max(period_activity['trial'])
@@ -449,41 +459,54 @@ def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'inse
     firing = period_activity['firing_rates'][trial - 1]   # Align ephys trial and model trial (e.g., no ignored trials in model fitting)
 
     # -- Plot all variables over trial --
-    fig1, axs = plt.subplots(len(independent_variable) + 2, 1, sharex=True, dpi=150, figsize=(11, 14))
-    plt.subplots_adjust(right=0.8, hspace=0.2)
+    if axs is None:
+        axs=dict()
+        fig1 = plt.figure(dpi=150, figsize=(14, 14))
+        gs = fig1.add_gridspec(len(independent_variable) + 2, 2, width_ratios=[5, 1], top=0.95)
+        axs['choice_history'], axs['period_firing'] = fig1.add_subplot(gs[0, 0]), fig1.add_subplot(gs[1, 0])
+        for n, iv in enumerate(independent_variable):
+            axs['time_' + iv] = fig1.add_subplot(gs[2 + n, 0])
+            axs['fit_' + iv] = fig1.add_subplot(gs[2 + n, 1])
+         
+        # plt.subplots_adjust(right=0.8, hspace=0.2)
 
     # Choice history (including ignored trials)
-    foraging_model_plot.plot_session_fitted_choice(unit_key, specified_model_ids=model_id, ax=axs[0], remove_ignored=False)
+    foraging_model_plot.plot_session_fitted_choice(unit_key, specified_model_ids=model_id, ax=axs['choice_history'], remove_ignored=False)
 
     # Period firing rate
     trial_with_nan = np.arange(np.min(trial), np.max(trial + 1))
     firing_with_nan = np.empty(trial_with_nan.shape)
     firing_with_nan[:] = np.nan
     firing_with_nan[trial - 1] = firing
-    axs[1].plot(trial_with_nan, firing_with_nan, 'o-', ms=5)
-    axs[1].set_title(f'Mean firing rate in epoch: {period} (spikes / s)')
+    axs['period_firing'].plot(trial_with_nan, firing_with_nan, 'o-', ms=5)
+    axs['period_firing'].set(ylabel=f'Mean firing rate in: {period}\n (spikes / s)')
+    sns.despine(ax=axs['period_firing'], trim=True)
 
     # Independent variables
-    for ax, iv in zip(axs[2:], independent_variable):
+    for iv in independent_variable:
         # To show gaps in ignored trials
+        ax = axs['time_' + iv]
         iv_with_nan = np.empty(trial_with_nan.shape)
         iv_with_nan[:] = np.nan
         iv_with_nan[trial - 1] = all_iv[iv] 
         ax.plot(trial_with_nan, iv_with_nan, 'k')
-        ax.set_title(iv)
+        ax.set_ylabel(iv)
         ax.set_xlabel('Original trial number')
+        ax.label_outer()
+        sns.despine(ax=ax, trim=True)
 
-    for ax in axs.flat: ax.label_outer()
+
+    # for ax in axs.flat: ax.label_outer()
 
     # -- Plot linear regression --
     y = pd.DataFrame({f'{period} firing': firing})
     x = all_iv[independent_variable].astype(float)
-    result, fig2 = linear_fit(y, x, if_plot=True)
+    _, _ = linear_fit(y, x, if_plot=True, axs=[axs['fit_' + iv] for iv in independent_variable])
 
-    return fig1, fig2
+    return axs 
 
 
-def linear_fit(y, x, intercept=True, if_plot=False):
+def linear_fit(y, x, intercept=True, if_plot=False, axs=None):
     """
     Simple linear regression Y = [b0] + b1 * x1 + b2 * x2 + ...
     @param y: samples
@@ -498,8 +521,10 @@ def linear_fit(y, x, intercept=True, if_plot=False):
     if if_plot:
         n_x = x.shape[1]
 
-        fig = plt.figure(dpi=150, figsize=(10, 5))
-        axs = np.atleast_1d(fig.subplots(1, n_x, sharey=True))
+        if axs is None:
+            fig = plt.figure(dpi=150, figsize=(10, 5))
+            axs = np.atleast_1d(fig.subplots(1, n_x, sharey=True))
+            
         for ax, xx, xname, para, p, t in zip(axs,
                                              model.exog[:, int(intercept):].T,
                                              model.exog_names[int(intercept):],
@@ -518,12 +543,12 @@ def linear_fit(y, x, intercept=True, if_plot=False):
                         label=f'Pearson $r$ = {r_pearson:.3g}\n$p$ = {p_pearson:.2g}'
                         )
 
-            ax.set_title(label=f'$p$ = {p:.2g}, $t$ = {t:.3g}', fontsize=13)
+            ax.set_title(label=f'$p$ = {p:.2g}, $t$ = {t:.3g}', fontsize=10)
             ax.set(xlabel=xname, ylabel=model.endog_names)
             ax.set_aspect(1.0 / ax.get_data_ratio(), adjustable='box')
-            ax.legend(handlelength=0, handletextpad=0, fancybox=True, fontsize=10, loc='upper right')
+            ax.legend(handlelength=0, handletextpad=0, fancybox=True, fontsize=7, loc='upper right')
 
         axs[0].set_title(f'Multivariate linear model: $r^2$ = {model_fit.rsquared_adj:.2g}\n' + axs[0].get_title(), fontsize=13)
-        for a in axs: a.label_outer()
+        # for a in axs: a.label_outer()
 
-    return dict(r_2_adj=model_fit.rsquared_adj, p=model_fit.pvalues, t=model_fit.tvalues, para=model_fit.params), fig
+    return dict(r_2_adj=model_fit.rsquared_adj, p=model_fit.pvalues, t=model_fit.tvalues, para=model_fit.params), axs
