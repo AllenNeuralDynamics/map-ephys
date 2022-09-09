@@ -864,11 +864,11 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
 
         #%%
         
-        fig = plt.figure(figsize=(60, 40), dpi=300, constrained_layout=0)
+        fig = plt.figure(figsize=(60, 50), dpi=300, constrained_layout=0)
         gs0 = fig.add_gridspec(2, 2, height_ratios=(1, 5), width_ratios=(1.3, 1), right=0.95)
 
-        gs_qc = gs0[0, 0].subgridspec(2, 7)
-        gs_drift = gs0[0, 1]
+        gs_qc = gs0[0, 0].subgridspec(2, 7, hspace=0.4, wspace=0.5)
+        gs_drift = gs0[0, 1].subgridspec(2, 3, width_ratios=[6, 1, 1], height_ratios=[1, 11])
         gs_psth = gs0[1, 0].subgridspec(10, 6)
         gs_tuning = gs0[1, 1].subgridspec(5, 2, width_ratios=[5, 1])
         
@@ -899,17 +899,36 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
         ax.set(xticks=[0, 1], xlabel='ms', ylabel=R'$\mu V$')
         sns.despine(ax=ax, trim=True)
         
+        # -- spike widths --
+        
+        
         # -- unit QC --
         axs = np.array([fig.add_subplot(gs_qc[row_idx, col_idx])
                         for row_idx, col_idx in itertools.product(range(0, 2), range(1, 4))])
-        unit_characteristic_plot.plot_clustering_quality(ephys.ProbeInsertion & key, axs=axs)
         
+        amp, snr, spk_rate, isi_violation, amplitude_cutoff, presence_ratio = (ephys.Unit * ephys.UnitStat * ephys.ClusterMetric & key).fetch1(
+                                            'unit_amp', 'unit_snr', 'avg_firing_rate', 'isi_violation', 'amplitude_cutoff', 'presence_ratio')
+        
+        unit_characteristic_plot.plot_clustering_quality_foraging(ephys.ProbeInsertion & key, axs=axs,
+                                                                  highlight_unit={'amp': amp, 'snr': snr,
+                                                                                  'isi': np.log10(isi_violation + 1e-5),
+                                                                                  'rate': np.log10(spk_rate),
+                                                                                  'amplitude_cutoff': amplitude_cutoff,
+                                                                                  'presence_ratio': presence_ratio},
+                                                                  qc_boundary={'amp': 70, 'isi': np.log10(0.5),
+                                                                               'amplitude_cutoff': 0.1,
+                                                                               'presence_ratio': 0.95}
+                                                                  )
+        
+        # -- unit QC along the probe --
         axs = np.array([fig.add_subplot(gs_qc[:2, col_idx])
                         for col_idx in range(4, 7)])
         unit_characteristic_plot.plot_unit_characteristic(ephys.ProbeInsertion & key, axs=axs)
         
         # -- drift map --
-        
+        axs = [fig.add_subplot(gs_drift[row_idx, col_idx])
+               for row_idx, col_idx in ((1, 0), (0, 0), (1, 1), (1, 2))]
+        unit_characteristic_plot.plot_driftmap(ephys.ProbeInsertion & key, axs=axs)
 
         
         # === 2. raster & psth ===

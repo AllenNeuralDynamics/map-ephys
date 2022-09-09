@@ -73,6 +73,90 @@ def plot_clustering_quality(probe_insertion, clustering_method=None, axs=None, a
 
     return fig
 
+def plot_clustering_quality_foraging(probe_insertion, clustering_method=None, axs=None, archived_clustering_key=None,
+                                     highlight_unit=None, qc_boundary=None):
+    probe_insertion = probe_insertion.proj()
+
+    if clustering_method is None:
+        try:
+            clustering_method = _get_clustering_method(probe_insertion)
+        except ValueError as e:
+            raise ValueError(str(e) + '\nPlease specify one with the kwarg "clustering_method"')
+
+    if archived_clustering_key:
+        amp, snr, spk_rate, isi_violation = (ephys.ArchivedClustering.Unit
+                                             * ephys.ArchivedClustering.UnitStat
+                                             * ephys.ProbeInsertion.InsertionLocation
+                                             & archived_clustering_key).fetch(
+            'unit_amp', 'unit_snr', 'avg_firing_rate', 'isi_violation')
+    else:
+        amp, snr, spk_rate, isi_violation, amplitude_cutoff, presence_ratio = (ephys.Unit * ephys.UnitStat * ephys.ProbeInsertion.InsertionLocation * ephys.ClusterMetric
+                                             & probe_insertion & {'clustering_method': clustering_method}).fetch(
+            'unit_amp', 'unit_snr', 'avg_firing_rate', 'isi_violation', 'amplitude_cutoff', 'presence_ratio')
+
+    metrics = {'amp': amp,
+               # 'snr': snr,
+               'isi': np.log10(isi_violation + 1e-5),  # log10 isi_violation (doesn't make sense to *100. See https://allensdk.readthedocs.io/en/latest/_static/examples/nb/ecephys_quality_metrics.html#ISI-violations)
+               'rate': np.log10(spk_rate),
+               'amplitude_cutoff': amplitude_cutoff,
+               # 'presence_ratio': presence_ratio,
+               }
+    
+    label_mapper = {'amp': 'Amplitude',
+                    'snr': 'SNR',
+                    'isi': '$log_{10}$ ISI violation',
+                    'rate': '$log_{10}$ firing rate',
+                    'amplitude_cutoff': 'Amp cutoff',
+                    'presence_ratio': 'Presence ratio'}
+
+    fig = None
+    if axs is None:
+        fig, axs = plt.subplots(2, 3, figsize=(12, 8))
+        fig.subplots_adjust(wspace=0.4)
+
+    assert axs.size == 6
+
+    for (m1, m2), ax in zip(itertools.combinations(list(metrics.keys()), 2), axs.flatten()):
+        gs = ax._subplotspec.subgridspec(2, 2, height_ratios=[1, 5], width_ratios = [5, 1])
+        
+        ax_main = ax.get_figure().add_subplot(gs[1, 0])
+        sns.scatterplot(x=metrics[m1], y=metrics[m2], ax=ax_main, alpha=0.3, color='k', s=10)
+        # ax.plot(metrics[m1], metrics[m2], 'ok', markersize=5, alpha=0.1)
+        ax_main.set_xlabel(label_mapper[m1])
+        ax_main.set_ylabel(label_mapper[m2])
+
+        ax_hist_x = ax.get_figure().add_subplot(gs[0, 0])
+        sns.histplot(x=metrics[m1], bins=30, color='k', ax=ax_hist_x)
+        
+        ax_hist_y = ax.get_figure().add_subplot(gs[1, 1])
+        sns.histplot(y=metrics[m2], bins=30, color='k', ax=ax_hist_y)
+        
+        if highlight_unit is not None:
+            ax_main.plot(highlight_unit[m1], highlight_unit[m2], 'g*', markersize=15)
+            
+        if qc_boundary is not None:
+            if m1 in qc_boundary:
+                ax_main.axvline(qc_boundary[m1], color='r', ls='--')
+                ax_hist_x.axvline(qc_boundary[m1], color='r', ls='--')
+            if m2 in qc_boundary:
+                ax_main.axhline(qc_boundary[m2], color='r', ls='--')
+                ax_hist_y.axhline(qc_boundary[m2], color='r', ls='--')
+        
+        ax_main.get_shared_x_axes().join(ax_main, ax_hist_x)
+        ax_main.get_shared_y_axes().join(ax_main, ax_hist_y)
+        ax_hist_x.label_outer()
+        ax_hist_y.label_outer()
+        
+        # cosmetic
+        for axx in (ax_main, ax_hist_x, ax_hist_y):
+            axx.spines['right'].set_visible(False)
+            axx.spines['top'].set_visible(False)
+
+        
+        ax.remove()
+
+    return fig
+
 
 def plot_unit_characteristic(probe_insertion, clustering_method=None, axs=None):
     probe_insertion = probe_insertion.proj()
@@ -397,7 +481,7 @@ def plot_pseudocoronal_slice(probe_insertion, shank_no=1):
     return fig
 
 
-def plot_driftmap(probe_insertion, clustering_method=None, shank_no=1, archived_clustering_key=None):
+def plot_driftmap(probe_insertion, clustering_method=None, shank_no=1, archived_clustering_key=None, axs=None):
     probe_insertion = probe_insertion.proj()
 
     assert histology.InterpolatedShankTrack & probe_insertion
@@ -485,13 +569,17 @@ def plot_driftmap(probe_insertion, clustering_method=None, shank_no=1, archived_
     region_rgba = np.repeat(region_rgba[:, np.newaxis, :], 10, axis=1)
 
     # canvas setup
-    fig = plt.figure(figsize=(16, 8))
-    grid = plt.GridSpec(12, 12)
+    if axs is None:
+        fig = plt.figure(figsize=(16, 8))
+        grid = plt.GridSpec(12, 12)
 
-    ax_main = plt.subplot(grid[1:, 0:9])
-    ax_cbar = plt.subplot(grid[0, 0:9])
-    ax_spkcount = plt.subplot(grid[1:, 9:11])
-    ax_anno = plt.subplot(grid[1:, 11:])
+        ax_main = plt.subplot(grid[1:, 0:9])
+        ax_cbar = plt.subplot(grid[0, 0:9])
+        ax_spkcount = plt.subplot(grid[1:, 9:11])
+        ax_anno = plt.subplot(grid[1:, 11:])
+    else:
+        ax_main, ax_cbar, ax_spkcount, ax_anno = axs
+        fig = axs[0].get_figure()
 
     # -- plot main --
     im = ax_main.imshow(spk_rates.T, aspect='auto', cmap='gray_r',
