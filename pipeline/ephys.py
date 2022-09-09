@@ -526,6 +526,35 @@ class UnitCellType(dj.Computed):
 
         self.insert1(dict(key,
                           cell_type='FS' if waveform_width < 0.4 else 'Pyr'))
+        
+        
+@schema
+class UnitWaveformWidth(dj.Computed):
+    definition = """
+    -> Unit
+    ---
+    waveform_width:  float   # (ms)
+    """
+    
+    # @property
+    # def key_source(self):
+    #     return super().key_source & 'unit_quality != "all"'
+    
+    def make(self, key):
+        upsample_factor = 100
+
+        ave_waveform, fs = (ProbeInsertion.RecordingSystemSetup * Unit & key).fetch1('waveform', 'sampling_rate')
+        cs = CubicSpline(range(len(ave_waveform)), ave_waveform)
+        ave_waveform = cs(np.linspace(0, len(ave_waveform) - 1, (len(ave_waveform))*upsample_factor))
+
+        fs = fs * upsample_factor
+        x_min = np.argmin(ave_waveform) / fs
+        x_max = np.argmax(ave_waveform) / fs
+        waveform_width = abs(x_max-x_min) * 1000  # convert to ms
+
+        self.insert1(dict(key,
+                          waveform_width=waveform_width))
+    
 
 
 @schema
