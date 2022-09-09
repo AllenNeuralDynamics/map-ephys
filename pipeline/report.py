@@ -867,7 +867,8 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
         fig = plt.figure(figsize=(60, 40), dpi=300, constrained_layout=0)
         gs0 = fig.add_gridspec(2, 2, height_ratios=(1, 5), width_ratios=(1.3, 1), right=0.95)
 
-        gs_meta = gs0[0, :].subgridspec(2, 8)
+        gs_qc = gs0[0, 0].subgridspec(2, 7)
+        gs_drift = gs0[0, 1]
         gs_psth = gs0[1, 0].subgridspec(10, 6)
         gs_tuning = gs0[1, 1].subgridspec(5, 2, width_ratios=[5, 1])
         
@@ -880,7 +881,6 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
                        'iti_start', 'next_trial_start']
         latent_variables = ['relative_action_value_ic', 'total_action_value', 'rpe']
         # === 1. meta info (spike QC etc.) ===
-        
         # Add unit info
         unit_info = (f'{(lab.WaterRestriction & key).fetch1("water_restriction_number")}, '
                     f'{(experiment.Session & key).fetch1("session_date")}, '
@@ -889,6 +889,28 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
                     f'{(((ephys.Unit & key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")}'
                     )
         fig.text(0.1, 0.9, unit_info)
+        
+        # -- mean waveform --
+        wave_form = (ephys.Unit & key).fetch1('waveform')
+        ts = (1 / (ephys.ProbeInsertion.RecordingSystemSetup & key).fetch1('sampling_rate') * 1000) * range(len(wave_form))
+        
+        ax = fig.add_subplot(gs_qc[:1, 0])
+        ax.plot(ts, wave_form)
+        ax.set(xticks=[0, 1], xlabel='ms', ylabel=R'$\mu V$')
+        sns.despine(ax=ax, trim=True)
+        
+        # -- unit QC --
+        axs = np.array([fig.add_subplot(gs_qc[row_idx, col_idx])
+                        for row_idx, col_idx in itertools.product(range(0, 2), range(1, 4))])
+        unit_characteristic_plot.plot_clustering_quality(ephys.ProbeInsertion & key, axs=axs)
+        
+        axs = np.array([fig.add_subplot(gs_qc[:2, col_idx])
+                        for col_idx in range(4, 7)])
+        unit_characteristic_plot.plot_unit_characteristic(ephys.ProbeInsertion & key, axs=axs)
+        
+        # -- drift map --
+        
+
         
         # === 2. raster & psth ===
         # --- 2.1 choice & outcome ---
