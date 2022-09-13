@@ -894,7 +894,10 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
         latent_variables = ['relative_action_value_ic', 'total_action_value', 'rpe']
         # === 1. meta info (spike QC etc.) ===
         # Add unit info
-        area_annotation = (((ephys.Unit & key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")
+        try:
+            area_annotation = (((ephys.Unit & key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")
+        except:
+            area_annotation = 'nan'
         unit_info = (f'{(lab.WaterRestriction & key).fetch1("water_restriction_number")}, '
                     f'{(experiment.Session & key).fetch1("session_date")}, '
                     f'imec {key["insertion_number"]-1}\n'
@@ -1000,6 +1003,8 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
         t_abs = max(abs(ts))
 
         fn_prefix = f'{t_abs:05.2f}_{area_annotation}_{water_res_num}_{sess_date.split("_")[0]}_{key["insertion_number"]}_{key["clustering_method"]}_u{key["unit"]:03}_'
+        fn_prefix = "".join( x for x in fn_prefix if (x.isalnum() or x in "._- "))  # turn to valid file name
+        
         fig_dict = save_figs(
             (fig,),
             ('unit_foraging_all_in_one',),
