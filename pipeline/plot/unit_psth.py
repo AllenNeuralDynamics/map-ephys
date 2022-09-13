@@ -366,10 +366,10 @@ def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'ses
     n_quantile = len(df['quantile_rank'].unique())    # Just in case qcut has 'dropped'
 
     fig = None
-    no_titles = False
+    if_titles = True
 
     if axs is None:
-        no_titles = True
+        if_titles = False
         fig = plt.figure(figsize=(len(align_types)/5 * 25, 5))
         axs = fig.subplots(1, len(align_types), sharey='row', sharex='col')
         axs = np.atleast_2d(axs).reshape((1, -1))
@@ -419,7 +419,7 @@ def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'ses
                                                          )
 
         _plot_psths(psths, kargs, ax=ax_psth, xlim=xlim, vlines=period_starts_all)
-        if not no_titles:
+        if if_titles:
             ax_psth.set(title=f'{align_type}')
 
     _set_same_horizonal_aspect_ratio(axs[0, :], xlims)

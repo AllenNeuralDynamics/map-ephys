@@ -584,7 +584,7 @@ def compute_unit_psth_and_raster(unit_key, trial_keys, align_type='go_cue', bin_
       }
     """
     
-    import time; s = time.time()
+    # import time; s = time.time()
     
     q_align_type = AlignType & {'align_type_name': align_type}
     
@@ -596,9 +596,9 @@ def compute_unit_psth_and_raster(unit_key, trial_keys, align_type='go_cue', bin_
         return None
 
     # Session-wise spike times (relative to the first sTrig, i.e. 'bitcodestart'. see line 212 of ingest.ephys)
-    ss = time.time()
+    # ss = time.time()
     spikes = q_spike.fetch1('spike_times')
-    print(f'fetch_spikes: {time.time()-ss}')
+    # print(f'fetch_spikes: {time.time()-ss}')
     
     # Session-wise event times (relative to session start)
     events, trials = q_event.fetch('trial_event_time', 'trial', order_by='trial asc')
@@ -632,7 +632,7 @@ def compute_unit_psth_and_raster(unit_key, trial_keys, align_type='go_cue', bin_
               np.concatenate([[t] * len(s)
                               for s, t in zip(spikes_aligned, trials)])]
 
-    print(f'compute_unit_psth_and_raster: {time.time() - s}')
+    # print(f'compute_unit_psth_and_raster: {time.time() - s}')
 
     return dict(bins=binning[1:], trials=trials, spikes_aligned=spikes_aligned,
                 psth=psth, psth_per_trial=psth_per_trial, raster=raster)

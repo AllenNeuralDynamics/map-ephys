@@ -1,6 +1,6 @@
 import datajoint as dj
 from datetime import datetime
-from pipeline import lab, get_schema_name, foraging_analysis, report, psth_foraging, foraging_model
+from pipeline import lab, get_schema_name, foraging_analysis, report, psth_foraging, foraging_model, ephys
 import multiprocessing as mp
 
 # Ray does not support Windows, use multiprocessing instead
@@ -9,28 +9,30 @@ use_ray = False
 # My tables
 my_tables = [       
         # Round 0 - old behavioral tables
-        [
-            # foraging_analysis.TrialStats,  # Very slow
-            foraging_analysis.BlockStats,
-            foraging_analysis.SessionTaskProtocol,  #  Important for model fitting
-            foraging_analysis.SessionStats,
-            foraging_analysis.BlockFraction,
-            foraging_analysis.SessionMatching,
-            foraging_analysis.BlockEfficiency,
-            ],
-        # Round 1 - model fitting
-        [
-            foraging_model.FittedSessionModel,
-            foraging_model.FittedSessionModelComparison
-            ],
+        # [
+        #     # foraging_analysis.TrialStats,  # Very slow
+        #     foraging_analysis.BlockStats,
+        #     foraging_analysis.SessionTaskProtocol,  #  Important for model fitting
+        #     foraging_analysis.SessionStats,
+        #     foraging_analysis.BlockFraction,
+        #     foraging_analysis.SessionMatching,
+        #     foraging_analysis.BlockEfficiency,
+        #     ],
+        # # Round 1 - model fitting
+        # [
+        #     foraging_model.FittedSessionModel,
+        #     foraging_model.FittedSessionModelComparison
+        #     ],
         # Round 2 - ephys
         [
             # psth_foraging.UnitPeriodLinearFit,
+            # ephys.UnitWaveformWidth
         ],
         # Round 3 - reports
         [
             # report.SessionLevelForagingSummary,
             # report.SessionLevelForagingLickingPSTH
+            report.UnitLevelForagingEphysReportAllInOne
         ]
         ]
 
