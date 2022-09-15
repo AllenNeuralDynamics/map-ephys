@@ -1,6 +1,6 @@
 import datajoint as dj
 from datetime import datetime
-from pipeline import lab, get_schema_name, foraging_analysis, report, psth_foraging, foraging_model
+from pipeline import lab, get_schema_name, foraging_analysis, report, psth_foraging, foraging_model, ephys
 import multiprocessing as mp
 
 # Ray does not support Windows, use multiprocessing instead
@@ -10,7 +10,7 @@ use_ray = False
 my_tables = [       
         # Round 0 - old behavioral tables
         [
-            # foraging_analysis.TrialStats,  # Very slow
+            foraging_analysis.TrialStats,  # Very slow
             foraging_analysis.BlockStats,
             foraging_analysis.SessionTaskProtocol,  #  Important for model fitting
             foraging_analysis.SessionStats,
@@ -26,6 +26,7 @@ my_tables = [
         # Round 2 - ephys
         [
             # psth_foraging.UnitPeriodLinearFit,
+            ephys.UnitWaveformWidth,
         ],
         # Round 3 - reports
         [
@@ -61,21 +62,21 @@ def populatemytables(paralel = True, cores = 9, all_rounds = range(len(my_tables
     
         arguments = {'display_progress' : False, 'reserve_jobs' : True}
         for runround in all_rounds:
-            print('--- Parallel round '+str(runround)+'---')
+            print('--- Parallel round '+str(runround)+'---', flush=True)
             
             result_ids = [pool.apply_async(populatemytables_core, args = (arguments,runround)) for coreidx in range(cores)] 
             
             for result_id in result_ids:
                 result_id.get()
 
-            print('  round '+ str(runround)+'  done...')
+            print('  round '+ str(runround)+'  done...', flush=True)
     
     show_progress(all_rounds)
         
     # Just in case there're anything missing?          
-    print('--- Run with single core...')
+    print('--- Run with single core...', flush=True)
     for runround in all_rounds:
-        print('   round '+str(runround)+'')
+        print('   round '+str(runround)+'', flush=True)
         arguments = {'display_progress' : True, 'reserve_jobs' : False, 'order': 'random'}
         populatemytables_core(arguments, runround)
         
