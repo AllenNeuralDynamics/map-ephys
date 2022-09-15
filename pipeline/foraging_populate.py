@@ -32,6 +32,7 @@ my_tables = [
         [
             # report.SessionLevelForagingSummary,
             # report.SessionLevelForagingLickingPSTH
+            report.UnitLevelForagingEphysReportAllInOne
         ]
         ]
 
@@ -60,7 +61,7 @@ def populatemytables(paralel = True, cores = 9, all_rounds = range(len(my_tables
         # schema = dj.schema(get_schema_name('foraging_analysis'),locals())
         # schema.jobs.delete()
     
-        arguments = {'display_progress' : False, 'reserve_jobs' : True}
+        arguments = {'display_progress' : False, 'reserve_jobs' : True, 'suppress_errors': True}
         for runround in all_rounds:
             print('--- Parallel round '+str(runround)+'---', flush=True)
             

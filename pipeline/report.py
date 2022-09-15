@@ -18,8 +18,8 @@ from PIL import Image
 import itertools
 
 from pipeline import get_schema_name, create_schema_settings, FailedUnitCriteriaError
-from pipeline import (experiment, ephys, psth, tracking, lab, histology, ccf,
-                      foraging_analysis, foraging_model, oralfacial_analysis)
+from pipeline import (experiment, ephys, psth, tracking, lab, histology, ccf, psth_foraging,
+                      foraging_analysis, foraging_model, oralfacial_analysis,)
 
 from pipeline.plot import behavior_plot, unit_characteristic_plot, unit_psth, histology_plot, PhotostimError, foraging_plot
 from pipeline.plot.util import _plot_with_sem, _jointplot_w_hue
@@ -170,7 +170,7 @@ class SessionLevelCDReport(dj.Computed):
 
                 # ---- generate fig with CD plot for this probe ----
                 fig, ax = plt.subplots(1, 1, figsize=(6, 6))
-                _plot_with_sem(proj_contra_trial, time_stamps, ax=ax, c='b')
+                _plot_with_sem(proj_contra_trial, time_stamps, ax=ax, c='k')
                 _plot_with_sem(proj_ipsi_trial, time_stamps, ax=ax, c='r')
                 # cosmetic
                 for x in period_starts:
@@ -847,30 +847,42 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
     
     foraging_sessions = (experiment.Session * lab.WaterRestriction) & (experiment.BehaviorTrial & 'task_protocol = 100')  # Two-lickport foraging
     all_unit_qc = ((ephys.Unit * ephys.ClusterMetric * ephys.UnitStat) & foraging_sessions 
-                   & 'presence_ratio > 0.95' & 'amplitude_cutoff < 0.1' & 'isi_violation < 0.5' & 'unit_amp > 70')
-    key_source = ephys.Unit & foraging_model.FittedSessionModel & all_unit_qc.proj()
+                   & 'presence_ratio > 0.9' & 'amplitude_cutoff < 0.1' & 'isi_violation < 0.5' & 'unit_amp > 70')
+    
+    t_significant_trial = (ephys.Unit & ((psth_foraging.UnitPeriodLinearFit * 
+                                   psth_foraging.UnitPeriodLinearFit.Param
+                                   & 'period in ("go_to_end")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' 
+                                   & 'var_name = "relative_action_value_ic"' 
+                                   & 'ABS(t) > 2'))).proj()
+    
+    t_significant_iti = (ephys.Unit & ((psth_foraging.UnitPeriodLinearFit * 
+                                   psth_foraging.UnitPeriodLinearFit.Param
+                                   & 'period in ("iti_all")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' 
+                                   & 'var_name = "relative_action_value_ic"' 
+                                   & 'ABS(t) > 2'))).proj()   
+    
+    t_sign = t_significant_iti + t_significant_iti
+    key_source = t_sign & (ephys.Unit & foraging_model.FittedSessionModel & all_unit_qc.proj()).proj()
 
     def make(self, key):
-        if not ephys.check_unit_criteria(key):
-            raise FailedUnitCriteriaError(f'Unit {key} did not meet selection criteria')
-
-        water_res_num, sess_date = get_wr_sessdatetime(key)
-        units_dir = store_stage / water_res_num / sess_date / str(key['insertion_number']) / 'units'
-        units_dir.mkdir(parents=True, exist_ok=True)
+        # if not ephys.check_unit_criteria(key):
+        #     raise FailedUnitCriteriaError(f'Unit {key} did not meet selection criteria')
 
         #%%
-        date, imec, unit = '2021-04-18', 0, 541
-        key = (ephys.Unit() & (experiment.Session & 'session_date = "2021-04-18"' & 'subject_id = 473361') & {'insertion_number': imec + 1, 'unit_uid': unit}).fetch1("KEY")
+        # date, imec, unit = '2021-04-18', 0, 541
+        # key = (ephys.Unit() & (experiment.Session & 'session_date = "2021-04-18"' & 'subject_id = 473361') & {'insertion_number': imec + 1, 'unit_uid': unit}).fetch1("KEY")
 
         #%%
         
-        fig = plt.figure(figsize=(60, 50), dpi=300, constrained_layout=0)
+        fig = plt.figure(figsize=(60, 50), dpi=100, constrained_layout=0)
         gs0 = fig.add_gridspec(2, 2, height_ratios=(1, 5), width_ratios=(1.3, 1), right=0.95)
 
         gs_qc = gs0[0, 0].subgridspec(2, 7, hspace=0.4, wspace=0.5)
         gs_drift = gs0[0, 1].subgridspec(2, 3, width_ratios=[6, 1, 1], height_ratios=[1, 11])
-        gs_psth = gs0[1, 0].subgridspec(10, 6)
-        gs_tuning = gs0[1, 1].subgridspec(5, 2, width_ratios=[5, 1])
+        # gs_psth = gs0[1, 0].subgridspec(10, 6, hspace=0.4)
+        gs_psth = gs0[1, 0].subgridspec(5, 5, hspace=0.4)
+
+        gs_tuning = gs0[1, 1].subgridspec(5, 2, width_ratios=[4, 1])
         
         #for ax in (*axs_meta, *axs_psth, *axs_tuning): fig.add_subplot(ax)        
         
@@ -882,13 +894,17 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
         latent_variables = ['relative_action_value_ic', 'total_action_value', 'rpe']
         # === 1. meta info (spike QC etc.) ===
         # Add unit info
+        try:
+            area_annotation = (((ephys.Unit & key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")
+        except:
+            area_annotation = 'nan'
         unit_info = (f'{(lab.WaterRestriction & key).fetch1("water_restriction_number")}, '
                     f'{(experiment.Session & key).fetch1("session_date")}, '
                     f'imec {key["insertion_number"]-1}\n'
                     f'Unit #: {key["unit"]}, '
-                    f'{(((ephys.Unit & key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")}'
+                    f'{area_annotation}'
                     )
-        fig.text(0.1, 0.9, unit_info)
+        fig.text(0.1, 0.9, unit_info, fontsize=30)
         
         # -- mean waveform --
         wave_form = (ephys.Unit & key).fetch1('waveform')
@@ -900,7 +916,12 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
         sns.despine(ax=ax, trim=True)
         
         # -- spike widths --
-        
+        half_width_this_session = (ephys.UnitWaveformWidth & (experiment.Session & key) & UnitLevelForagingEphysReportAllInOne.all_unit_qc
+                                   ).fetch('waveform_width')
+        ax = fig.add_subplot(gs_qc[1, 0])
+        ax.hist(half_width_this_session, 30, color='b')
+        ax.set(xlabel='Spk widths (this session, ms)')
+        ax.axvline((ephys.UnitWaveformWidth & key).fetch1('waveform_width'), color='g', linestyle='-')
         
         # -- unit QC --
         axs = np.array([fig.add_subplot(gs_qc[row_idx, col_idx])
@@ -923,7 +944,7 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
         # -- unit QC along the probe --
         axs = np.array([fig.add_subplot(gs_qc[:2, col_idx])
                         for col_idx in range(4, 7)])
-        unit_characteristic_plot.plot_unit_characteristic(ephys.ProbeInsertion & key, axs=axs)
+        unit_characteristic_plot.plot_unit_characteristic(ephys.ProbeInsertion & key, axs=axs, m_scale=500, highlight_unit=key)
         
         # -- drift map --
         axs = [fig.add_subplot(gs_drift[row_idx, col_idx])
@@ -937,10 +958,13 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
             unit_key=key,
             align_types=align_types,
             axs=np.array([fig.add_subplot(gs_psth[row_idx, col_idx])
-                          for row_idx, col_idx in itertools.product(range(2, 4), range(5))]).reshape(2, 5))
+                          # for row_idx, col_idx in itertools.product(range(2, 4), range(5))]).reshape(2, 5))
+                          for row_idx, col_idx in itertools.product(range(0, 2), range(5))]).reshape(2, 5))
 
         # --- 2.2 deltaQ, sumQ, RPE ---
-        index_range = range(4, 7)
+        # index_range = range(4, 7)
+        index_range = range(2, 5)
+
         for idx, latent_variable in zip(index_range, latent_variables):
             unit_psth.plot_unit_psth_latent_variable_quantile(
                 unit_key=key,
@@ -967,10 +991,23 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
         #%%
         
         # ---- Save fig and insert ----
-        fn_prefix = f'{water_res_num}_{sess_date}_{key["insertion_number"]}_{key["clustering_method"]}_u{key["unit"]:03}_'
+        
+        water_res_num, sess_date = get_wr_sessdatetime(key)
+        units_dir = store_stage / 'all_units'
+        units_dir.mkdir(parents=True, exist_ok=True)
+        
+        ts = ((psth_foraging.UnitPeriodLinearFit * psth_foraging.UnitPeriodLinearFit.Param) & key
+                 & 'period in ("iti_all", "go_to_end")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' & 'var_name = "relative_action_value_ic"'
+                 ).fetch('t')
+        
+        t_abs = max(abs(ts))
+
+        fn_prefix = f'{t_abs:05.2f}_{area_annotation}_{water_res_num}_{sess_date.split("_")[0]}_{key["insertion_number"]}_{key["clustering_method"]}_u{key["unit"]:03}_'
+        fn_prefix = "".join( x for x in fn_prefix if (x.isalnum() or x in "._- "))  # turn to valid file name
+        
         fig_dict = save_figs(
-            (fig),
-            ('unit_foraging_all_in_one'),
+            (fig,),
+            ('unit_foraging_all_in_one',),
             units_dir, fn_prefix)
  
         plt.close('all')
@@ -1068,7 +1105,7 @@ def save_figs(figs, fig_names, dir2save, prefix):
     for fig, figname in zip(figs, fig_names):
         fig_fp = dir2save / (prefix + figname + '.png')
         fig.tight_layout()
-        fig.savefig(fig_fp)
+        fig.savefig(fig_fp, facecolor=fig.get_facecolor())
         print(f'Generated {fig_fp}')
         fig_dict[figname] = fig_fp.as_posix()
 

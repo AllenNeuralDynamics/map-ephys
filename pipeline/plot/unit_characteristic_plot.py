@@ -158,7 +158,7 @@ def plot_clustering_quality_foraging(probe_insertion, clustering_method=None, ax
     return fig
 
 
-def plot_unit_characteristic(probe_insertion, clustering_method=None, axs=None):
+def plot_unit_characteristic(probe_insertion, clustering_method=None, axs=None, m_scale=None, highlight_unit=None):
     probe_insertion = probe_insertion.proj()
 
     if clustering_method is None:
@@ -187,7 +187,8 @@ def plot_unit_characteristic(probe_insertion, clustering_method=None, axs=None):
     # --- prepare for plotting
     shank_count = (ephys.ProbeInsertion & probe_insertion).aggr(lab.ElectrodeConfig.Electrode * lab.ProbeType.Electrode,
                                                                 shank_count='count(distinct shank)').fetch1('shank_count')
-    m_scale = get_m_scale(shank_count)
+    if m_scale is None:
+        m_scale = get_m_scale(shank_count)
 
     ymin = metrics.y.min() - 100
     ymax = metrics.y.max() + 200
@@ -195,8 +196,8 @@ def plot_unit_characteristic(probe_insertion, clustering_method=None, axs=None):
     xmin = -1/6*xmax
     cosmetic = {'legend': None,
                 'linewidth': 1.75,
-                'alpha': 0.9,
-                'facecolor': 'none', 'edgecolor': 'k'}
+                'alpha': 0.3,
+                'facecolor': 'k', 'edgecolor': 'none'}
 
     # --- plot
     fig = None
@@ -209,6 +210,19 @@ def plot_unit_characteristic(probe_insertion, clustering_method=None, axs=None):
     sns.scatterplot(data=metrics, x='x', y='y', s=metrics.amp*m_scale, ax=axs[0], **cosmetic)
     sns.scatterplot(data=metrics, x='x', y='y', s=metrics.snr*m_scale, ax=axs[1], **cosmetic)
     sns.scatterplot(data=metrics, x='x', y='y', s=metrics.rate*m_scale, ax=axs[2], **cosmetic)
+    
+    if highlight_unit is not None:
+        q_unit = (ephys.Unit * ephys.ProbeInsertion.InsertionLocation.proj('depth') * ephys.UnitStat
+                  & probe_insertion & highlight_unit).proj(
+                    ..., x='unit_posx', y='unit_posy')
+                  
+        amp_this, snr_this, spk_rate_this, x, y, insertion_depth = q_unit.fetch(
+                        'unit_amp', 'unit_snr', 'avg_firing_rate', 'x', 'y', 'depth')
+            
+        sns.scatterplot(x=x-11, y=insertion_depth.astype(float)+y, s=amp_this/amp.max()*m_scale, ax=axs[0], facecolor='g', edgecolor='g')
+        sns.scatterplot(x=x-11, y=insertion_depth.astype(float)+y, s=snr_this/snr.max()*m_scale, ax=axs[1], facecolor='g', edgecolor='g')
+        sns.scatterplot(x=x-11, y=insertion_depth.astype(float)+y, s=spk_rate_this/spk_rate.max()*m_scale, ax=axs[2], facecolor='g', edgecolor='g')
+
 
     # manually draw the legend
     lg_ypos = ymax
@@ -217,7 +231,7 @@ def plot_unit_characteristic(probe_insertion, clustering_method=None, axs=None):
     for ax, ax_maxval in zip(axs.flatten(), (amp.max(), snr.max(), spk_rate.max())):
         sns.scatterplot(data=data, x='x', y='y', s=data.size_ratio*m_scale, ax=ax, **dict(cosmetic, facecolor='k'))
         for _, r in data.iterrows():
-            ax.text(r['x']-4, r['y']+70, (r['size_ratio']*ax_maxval).astype(int))
+            ax.text(r['x']-4, r['y']+70, (r['size_ratio']*ax_maxval).astype(int), fontsize=15)
 
     # cosmetic
     for title, ax in zip(('Amplitude', 'SNR', 'Firing rate'), axs.flatten()):
