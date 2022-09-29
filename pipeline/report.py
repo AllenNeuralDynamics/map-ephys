@@ -873,7 +873,11 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
         #%%
         
         # ---- Save fig and insert ----
-        
+        try:
+            area_annotation = (((ephys.Unit & key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")
+        except:
+            area_annotation = 'nan'
+
         water_res_num, sess_date = get_wr_sessdatetime(key)
         units_dir = store_stage / 'all_units'
         units_dir.mkdir(parents=True, exist_ok=True)

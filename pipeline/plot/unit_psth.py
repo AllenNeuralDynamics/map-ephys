@@ -441,36 +441,28 @@ def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'ses
 
 
 def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'insertion_number': 1, 'clustering_method': 'kilosort2', 'unit': 541},
-                            period='iti_all',
+                            period=['iti_all', 'go_to_end'],
                             independent_variable=['relative_action_value_ic', 'total_action_value', 'rpe'],
                             model_id=None,
                             axs=None):
     """
     Plot multivariate linear regression of firing rate of given unit, in given period, using given independent variables
     @param unit_key:
-    @param period:
+    @param periods:
     @param independent_variable:
     @param model_id: if None, use the best aic model in all models
     @param axs: dictionary of {'choice_history', 'period_firing', 'time_{ivs}', 'fit_{ivs}'}
     
     @return: two figures if no axs are provided
     """
-    # Period activity
-    period_activity = psth_foraging.compute_unit_period_activity(unit_key, period)
 
-    # Latent variables
+    # -- Get latent variables --
     if model_id is None:
         model_id = (foraging_model.FittedSessionModelComparison.BestModel & unit_key & 'model_comparison_idx=0').fetch1('best_aic')
 
     all_iv = _get_unit_independent_variable(unit_key, model_id=model_id)
-    #TODO Align ephys event with behavior using bitcode! (and save raw bitcodes)
-    trial = all_iv.trial   # Original trial numbers but without ignored trials
-    trial_with_ephys = trial <= max(period_activity['trial'])
-    trial = trial[trial_with_ephys]   # Truncate behavior trial to max ephys length (this assumes the first trial is aligned, see ingest.ephys)
-    all_iv = all_iv[trial_with_ephys]  # Also truncate all ivs
-    firing = period_activity['firing_rates'][trial - 1]   # Align ephys trial and model trial (e.g., no ignored trials in model fitting)
-
-    # -- Plot all variables over trial --
+    
+    # -- Set axes --
     if axs is None:
         axs=dict()
         fig1 = plt.figure(dpi=150, figsize=(14, 14))
@@ -478,23 +470,42 @@ def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'inse
         axs['choice_history'], axs['period_firing'] = fig1.add_subplot(gs[0, 0]), fig1.add_subplot(gs[1, 0])
         for n, iv in enumerate(independent_variable):
             axs['time_' + iv] = fig1.add_subplot(gs[2 + n, 0])
-            axs['fit_' + iv] = fig1.add_subplot(gs[2 + n, 1])
-         
-        # plt.subplots_adjust(right=0.8, hspace=0.2)
-
-    # Choice history (including ignored trials)
+            axs['fit_' + iv] = fig1.add_subplot(gs[2 + n, 1]) 
+            
+    # 1. Choice history (including ignored trials)
     foraging_model_plot.plot_session_fitted_choice(unit_key, specified_model_ids=model_id, ax=axs['choice_history'], remove_ignored=False)
 
-    # Period firing rate
-    trial_with_nan = np.arange(np.min(trial), np.max(trial + 1))
-    firing_with_nan = np.empty(trial_with_nan.shape)
-    firing_with_nan[:] = np.nan
-    firing_with_nan[trial - 1] = firing
-    axs['period_firing'].plot(trial_with_nan, firing_with_nan, 'o-', ms=5)
-    axs['period_firing'].set(ylabel=f'Mean firing rate in: {period}\n (spikes / s)')
-    sns.despine(ax=axs['period_firing'], trim=True)
+    # 2. Period activity
+    for pp in period:
+       
+        period_activity = psth_foraging.compute_unit_period_activity(unit_key, pp)
 
-    # Independent variables
+        #TODO Align ephys event with behavior using bitcode! (and save raw bitcodes)
+        trial = all_iv.trial   # Original trial numbers but without ignored trials
+        trial_with_ephys = trial <= max(period_activity['trial'])
+        trial = trial[trial_with_ephys]   # Truncate behavior trial to max ephys length (this assumes the first trial is aligned, see ingest.ephys)
+        all_iv = all_iv[trial_with_ephys]  # Also truncate all ivs
+        firing = period_activity['firing_rates'][trial - 1]   # Align ephys trial and model trial (e.g., no ignored trials in model fitting)
+        
+        # plt.subplots_adjust(right=0.8, hspace=0.2)
+
+        # Period firing rate
+        trial_with_nan = np.arange(np.min(trial), np.max(trial + 1))
+        firing_with_nan = np.empty(trial_with_nan.shape)
+        firing_with_nan[:] = np.nan
+        firing_with_nan[trial - 1] = firing
+        axs['period_firing'].plot(trial_with_nan, firing_with_nan, 'o-', ms=3, lw=1, label=pp)
+        axs['period_firing'].set(ylabel=f'Mean firing rate (spikes / s)')
+        axs['period_firing'].legend()
+        sns.despine(ax=axs['period_firing'], trim=True)
+                               
+        # -- Linear regression --
+        y = pd.DataFrame({f'{pp} firing': firing})
+        x = all_iv[independent_variable].astype(float)
+        _, _ = linear_fit(y, x, if_plot=True, axs=[axs['fit_' + iv] for iv in independent_variable])
+        
+
+    # 2. Independent variables
     for iv in independent_variable:
         # To show gaps in ignored trials
         ax = axs['time_' + iv]
@@ -510,10 +521,7 @@ def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'inse
 
     # for ax in axs.flat: ax.label_outer()
 
-    # -- Plot linear regression --
-    y = pd.DataFrame({f'{period} firing': firing})
-    x = all_iv[independent_variable].astype(float)
-    _, _ = linear_fit(y, x, if_plot=True, axs=[axs['fit_' + iv] for iv in independent_variable])
+
 
     return axs 
 

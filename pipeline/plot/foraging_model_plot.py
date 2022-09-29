@@ -16,7 +16,7 @@ from matplotlib.patches import Rectangle
 from matplotlib.gridspec import GridSpec
 import itertools
 
-from pipeline import lab, foraging_model, util, foraging_analysis, experiment, ephys
+from pipeline import lab, foraging_model, util, foraging_analysis, experiment, ephys, histology, ccf
 from pipeline.plot import behavior_plot, unit_characteristic_plot, unit_psth, histology_plot, PhotostimError, foraging_plot, foraging_model_plot
 from pipeline.plot.util import moving_average
 from pipeline.report import UnitLevelForagingEphysReportAllInOne
@@ -532,6 +532,7 @@ def plot_unit_all_in_one(key):
 
     unit_psth.plot_unit_period_tuning(unit_key=key,
                                       independent_variable=independent_variable,
+                                      period=['iti_all', 'go_to_end'],
                                       model_id=None,  # Best model of this session
                                       axs=axs)
     
