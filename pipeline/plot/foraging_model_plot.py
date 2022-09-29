@@ -532,6 +532,7 @@ def plot_unit_all_in_one(key):
 
     unit_psth.plot_unit_period_tuning(unit_key=key,
                                       independent_variable=independent_variable,
+                                      period=['iti_all', 'go_to_end'],
                                       model_id=None,  # Best model of this session
                                       axs=axs)
     
