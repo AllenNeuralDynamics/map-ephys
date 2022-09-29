@@ -681,6 +681,11 @@ def compute_unit_period_activity(unit_key, period):
 
     # -- Fetch and count spikes --
     spikes = q_spike.fetch1('spike_times')
+    
+    # !!!Very important: ephys.TrialEvent is relative to the session start, whereas spike times are relative to the first sTrig...!!!
+    first_bit_code_start = float((ephys.TrialEvent & unit_key & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time'))
+    spikes = spikes + first_bit_code_start
+
     spike_counts, durations = [], []
 
     for trial in actual_trials:
