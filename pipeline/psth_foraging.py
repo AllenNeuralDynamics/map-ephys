@@ -476,6 +476,34 @@ class LinearModelBehaviorModelToFit(dj.Lookup):
 
 
 @schema
+class UnitPeriodActivity(dj.Computed):
+    definition = """
+    -> ephys.Unit
+    -> experiment.PeriodForaging
+    ---
+    trial:          longblob  # Actual trials
+    spike_counts:   longblob
+    durations:      longblob
+    firing_rates:   longblob
+    """
+
+    key_source = ephys.Unit & (experiment.BehaviorTrial & 'task LIKE "foraging%"') # granularity = unit level
+    
+    def make(self, key):    
+        periods = (experiment.PeriodForaging & 'period NOT IN ("delay_bitcode")').fetch('period')  # 'delay_bitcode' will be used by compute_unit_period_activity if needed
+
+        period_selectivities = []
+        for period in periods:
+            period_selectivities.append(compute_unit_period_activity(key, period))
+            
+        UnitPeriodActivity.insert([{**key, 
+                                    **period_sel, 
+                                    'period': period} 
+                                   for (period_sel, period) in zip(period_selectivities, periods)])
+        
+
+    
+@schema
 class UnitPeriodLinearFit(dj.Computed):
     definition = """
     -> ephys.Unit
@@ -488,7 +516,7 @@ class UnitPeriodLinearFit(dj.Computed):
     model_r2_adj=Null:   float  # r square adj.
     model_p=Null:   float
     """
-
+    
     key_source = (ephys.Unit & (experiment.BehaviorTrial & 'task LIKE "foraging%"')) * LinearModelPeriodToFit * LinearModelBehaviorModelToFit * LinearModel
 
     class Param(dj.Part):
@@ -523,15 +551,17 @@ class UnitPeriodLinearFit(dj.Computed):
         if_intercept = (LinearModel & key).fetch1('if_intercept')
 
         # Get data
-        period_activity = compute_unit_period_activity(key, period)
+        #  period_activity = compute_unit_period_activity(key, period)
+        period_activity = (UnitPeriodActivity & key & {'period': period}).fetch1('trial', 'firing_rates')
+        
         all_iv = _get_unit_independent_variable(key, model_id=model_id)
 
         # TODO Align ephys event with behavior using bitcode! (and save raw bitcodes)
         trial = all_iv.trial  # Without ignored trials
-        trial_with_ephys = trial <= max(period_activity['trial'])
+        trial_with_ephys = trial <= max(period_activity[0])
         trial = trial[trial_with_ephys]  # Truncate behavior trial to max ephys length (this assumes the first trial is aligned, see ingest.ephys)
         all_iv = all_iv[trial_with_ephys]  # Also truncate all ivs
-        firing = period_activity['firing_rates'][trial - 1]  # Align ephys trial and model trial (e.g., no ignored trials in model fitting)
+        firing = period_activity[1][trial - 1]  # Align ephys trial and model trial (e.g., no ignored trials in model fitting)
 
         # -- Fit --
         y = pd.DataFrame({f'{period} firing': firing})
@@ -558,6 +588,7 @@ class UnitPeriodLinearFit(dj.Computed):
                                 'p': model_fit.pvalues[para],
                                 't': model_fit.tvalues[para]
                                 })
+
 
 
 # ============= Helpers =============
