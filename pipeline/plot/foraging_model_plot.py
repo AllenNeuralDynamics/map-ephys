@@ -16,7 +16,7 @@ from matplotlib.patches import Rectangle
 from matplotlib.gridspec import GridSpec
 import itertools
 
-from pipeline import lab, foraging_model, util, foraging_analysis, experiment, ephys
+from pipeline import lab, foraging_model, util, foraging_analysis, experiment, ephys, histology, ccf
 from pipeline.plot import behavior_plot, unit_characteristic_plot, unit_psth, histology_plot, PhotostimError, foraging_plot, foraging_model_plot
 from pipeline.plot.util import moving_average
 from pipeline.report import UnitLevelForagingEphysReportAllInOne
