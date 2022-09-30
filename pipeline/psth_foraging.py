@@ -494,7 +494,7 @@ class UnitPeriodActivity(dj.Computed):
 
         period_selectivities = []
         for period in periods:
-            period_selectivities.append(compute_unit_period_activity(key, period))
+            period_selectivities.append(_compute_unit_period_activity(key, period))
             
         UnitPeriodActivity.insert([{**key, 
                                     **period_sel, 
@@ -669,7 +669,7 @@ def compute_unit_psth_and_raster(unit_key, trial_keys, align_type='go_cue', bin_
                 psth=psth, psth_per_trial=psth_per_trial, raster=raster)
 
 
-def compute_unit_period_activity(unit_key, period):
+def _compute_unit_period_activity(unit_key, period):
     """
     Given unit and period, compute average firing rate over trials
     I tried to put this in a table, but it's too slow... (too many elements)
