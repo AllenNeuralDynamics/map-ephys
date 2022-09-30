@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import statsmodels.api as sm
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, sem
 
 from pipeline import psth, psth_foraging, ephys, lab, ccf, histology, experiment, foraging_model
 from pipeline.util import (_get_trial_event_times, _get_ephys_trial_event_times,
@@ -141,12 +141,18 @@ def _plot_spike_raster_foraging(ipsi, contra, offset=0, vlines=[], shade_bar=Non
     ax.set_title(title)
 
 
-def _plot_psth_foraging(ipsi, contra, vlines=[], shade_bar=None, ax=None, title='', label='', xlim=_plt_xlim, **karg):
+def _plot_psth_foraging(ipsi, contra, if_sem=True, vlines=[], shade_bar=None, ax=None, title='', label='', xlim=_plt_xlim, **karg):
     if not ax:
         fig, ax = plt.subplots(1, 1)
 
     ax.plot(contra['bins'], contra['psth'], 'b', label='contra ' + label, **karg)
     ax.plot(ipsi['bins'], ipsi['psth'], 'r', label='ipsi ' + label, **karg)
+    
+    if if_sem:
+        contra_err = sem(contra['psth_per_trial'], axis=0)
+        ipsi_err = sem(ipsi['psth_per_trial'], axis=0)
+        ax.fill_between(contra['bins'], contra['psth'] - contra_err, contra['psth'] + contra_err, alpha=0.3, color='b')
+        ax.fill_between(ipsi['bins'], ipsi['psth'] - ipsi_err, ipsi['psth'] + ipsi_err, alpha=0.3, color='r')
 
     for x in vlines:
         ax.axvline(x=x, linestyle='--', color='k')
@@ -164,7 +170,7 @@ def _plot_psth_foraging(ipsi, contra, vlines=[], shade_bar=None, ax=None, title=
     ax.set_title(title)
 
 
-def _plot_psths(psths, kargs=[], vlines=[], shade_bar=None, ax=None, title='', label='', xlim=_plt_xlim):
+def _plot_psths(psths, kargs=[], vlines=[], if_sem=True, shade_bar=None, ax=None, title='', label='', xlim=_plt_xlim):
     """
     Plot arbitrary number of psths
     """
@@ -176,6 +182,11 @@ def _plot_psths(psths, kargs=[], vlines=[], shade_bar=None, ax=None, title='', l
 
     for psth, karg in zip(psths, kargs):
         ax.plot(psth['bins'], psth['psth'], **karg)
+        
+        if if_sem:
+            err = sem(psth['psth_per_trial'], axis=0)
+            ax.fill_between(psth['bins'], psth['psth'] - err, psth['psth'] + err, alpha=karg['alpha']*0.8, color=karg['color'])
+
 
     for x in vlines:
         ax.axvline(x=x, linestyle='--', color='k')
@@ -211,6 +222,7 @@ def _set_same_horizonal_aspect_ratio(axs, xlims, gap=0.02):
 
 def plot_unit_psth_choice_outcome(unit_key={'subject_id': 473361, 'session': 47, 'insertion_number': 1, 'clustering_method': 'kilosort2', 'unit': 541},
                                   align_types=['trial_start', 'go_cue', 'first_lick_after_go_cue', 'iti_start', 'next_trial_start'],
+                                  if_sem=True,
                                   if_raster=True, if_exclude_early_lick=False,
                                   axs=None, title=''):
     """Plot psth grouped by (choice x outcome) for the foraging task.
@@ -301,10 +313,10 @@ def plot_unit_psth_choice_outcome(unit_key={'subject_id': 473361, 'session': 47,
         # _, period_starts_miss = _get_ephys_trial_event_times([trialstart, 'go', 'choice', 'trialend'],
         #                                                   ipsi_miss_trials.proj() + contra_miss_trials.proj(), align_event=align_event_type)
 
-        _plot_psth_foraging(ipsi_hit_unit_psth, contra_hit_unit_psth,
+        _plot_psth_foraging(ipsi_hit_unit_psth, contra_hit_unit_psth, if_sem=if_sem,
                             vlines=period_starts_hit, ax=ax_psth, xlim=xlim, label='rew', linestyle='-')
 
-        _plot_psth_foraging(ipsi_miss_unit_psth, contra_miss_unit_psth,
+        _plot_psth_foraging(ipsi_miss_unit_psth, contra_miss_unit_psth, if_sem=if_sem,
                             vlines=[], ax=ax_psth, xlim=xlim, label='norew', linestyle='--')
 
         if not no_titles:
@@ -390,7 +402,7 @@ def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'ses
 
     kargs = [{'color': 'b' if 'contra' in latent_variable else 'r' if 'ipsi' in latent_variable else 'k',
               'alpha': np.linspace(0.2, 1, n_quantile)[rank],
-              'label': f'quantile {rank + 1}'} for rank in range(n_quantile)]
+              'label': f'{latent_variable}, quantile {rank + 1}'} for rank in range(n_quantile)]
     xlims = []
 
     # -- For each align type --
@@ -429,36 +441,28 @@ def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'ses
 
 
 def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'insertion_number': 1, 'clustering_method': 'kilosort2', 'unit': 541},
-                            period='iti_all',
+                            period=['iti_all', 'go_to_end'],
                             independent_variable=['relative_action_value_ic', 'total_action_value', 'rpe'],
                             model_id=None,
                             axs=None):
     """
     Plot multivariate linear regression of firing rate of given unit, in given period, using given independent variables
     @param unit_key:
-    @param period:
+    @param periods:
     @param independent_variable:
     @param model_id: if None, use the best aic model in all models
     @param axs: dictionary of {'choice_history', 'period_firing', 'time_{ivs}', 'fit_{ivs}'}
     
     @return: two figures if no axs are provided
     """
-    # Period activity
-    period_activity = psth_foraging.compute_unit_period_activity(unit_key, period)
 
-    # Latent variables
+    # -- Get latent variables --
     if model_id is None:
         model_id = (foraging_model.FittedSessionModelComparison.BestModel & unit_key & 'model_comparison_idx=0').fetch1('best_aic')
 
     all_iv = _get_unit_independent_variable(unit_key, model_id=model_id)
-    #TODO Align ephys event with behavior using bitcode! (and save raw bitcodes)
-    trial = all_iv.trial   # Original trial numbers but without ignored trials
-    trial_with_ephys = trial <= max(period_activity['trial'])
-    trial = trial[trial_with_ephys]   # Truncate behavior trial to max ephys length (this assumes the first trial is aligned, see ingest.ephys)
-    all_iv = all_iv[trial_with_ephys]  # Also truncate all ivs
-    firing = period_activity['firing_rates'][trial - 1]   # Align ephys trial and model trial (e.g., no ignored trials in model fitting)
-
-    # -- Plot all variables over trial --
+    
+    # -- Set axes --
     if axs is None:
         axs=dict()
         fig1 = plt.figure(dpi=150, figsize=(14, 14))
@@ -466,23 +470,42 @@ def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'inse
         axs['choice_history'], axs['period_firing'] = fig1.add_subplot(gs[0, 0]), fig1.add_subplot(gs[1, 0])
         for n, iv in enumerate(independent_variable):
             axs['time_' + iv] = fig1.add_subplot(gs[2 + n, 0])
-            axs['fit_' + iv] = fig1.add_subplot(gs[2 + n, 1])
-         
-        # plt.subplots_adjust(right=0.8, hspace=0.2)
-
-    # Choice history (including ignored trials)
+            axs['fit_' + iv] = fig1.add_subplot(gs[2 + n, 1]) 
+            
+    # 1. Choice history (including ignored trials)
     foraging_model_plot.plot_session_fitted_choice(unit_key, specified_model_ids=model_id, ax=axs['choice_history'], remove_ignored=False)
 
-    # Period firing rate
-    trial_with_nan = np.arange(np.min(trial), np.max(trial + 1))
-    firing_with_nan = np.empty(trial_with_nan.shape)
-    firing_with_nan[:] = np.nan
-    firing_with_nan[trial - 1] = firing
-    axs['period_firing'].plot(trial_with_nan, firing_with_nan, 'o-', ms=5)
-    axs['period_firing'].set(ylabel=f'Mean firing rate in: {period}\n (spikes / s)')
-    sns.despine(ax=axs['period_firing'], trim=True)
+    # 2. Period activity
+    for pp in period:
+       
+        period_activity = psth_foraging.compute_unit_period_activity(unit_key, pp)
 
-    # Independent variables
+        #TODO Align ephys event with behavior using bitcode! (and save raw bitcodes)
+        trial = all_iv.trial   # Original trial numbers but without ignored trials
+        trial_with_ephys = trial <= max(period_activity['trial'])
+        trial = trial[trial_with_ephys]   # Truncate behavior trial to max ephys length (this assumes the first trial is aligned, see ingest.ephys)
+        all_iv = all_iv[trial_with_ephys]  # Also truncate all ivs
+        firing = period_activity['firing_rates'][trial - 1]   # Align ephys trial and model trial (e.g., no ignored trials in model fitting)
+        
+        # plt.subplots_adjust(right=0.8, hspace=0.2)
+
+        # Period firing rate
+        trial_with_nan = np.arange(np.min(trial), np.max(trial + 1))
+        firing_with_nan = np.empty(trial_with_nan.shape)
+        firing_with_nan[:] = np.nan
+        firing_with_nan[trial - 1] = firing
+        axs['period_firing'].plot(trial_with_nan, firing_with_nan, 'o-', ms=3, lw=1, label=pp)
+        axs['period_firing'].set(ylabel=f'Mean firing rate (spikes / s)')
+        axs['period_firing'].legend()
+        sns.despine(ax=axs['period_firing'], trim=True)
+                               
+        # -- Linear regression --
+        y = pd.DataFrame({f'{pp} firing': firing})
+        x = all_iv[independent_variable].astype(float)
+        _, _ = linear_fit(y, x, if_plot=True, axs=[axs['fit_' + iv] for iv in independent_variable])
+        
+
+    # 2. Independent variables
     for iv in independent_variable:
         # To show gaps in ignored trials
         ax = axs['time_' + iv]
@@ -498,10 +521,7 @@ def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'inse
 
     # for ax in axs.flat: ax.label_outer()
 
-    # -- Plot linear regression --
-    y = pd.DataFrame({f'{period} firing': firing})
-    x = all_iv[independent_variable].astype(float)
-    _, _ = linear_fit(y, x, if_plot=True, axs=[axs['fit_' + iv] for iv in independent_variable])
+
 
     return axs 
 
