@@ -10,7 +10,7 @@ from . import (lab, experiment, ephys)
 [lab, experiment, ephys]  # NOQA
 
 from . import get_schema_name, dict_to_hash, create_schema_settings
-from pipeline import foraging_model
+from pipeline import foraging_model, foraging_analysis
 from pipeline.util import _get_unit_independent_variable
 
 schema = dj.schema(get_schema_name('psth_foraging'), **create_schema_settings)
@@ -487,7 +487,7 @@ class UnitPeriodActivity(dj.Computed):
     firing_rates:   longblob
     """
 
-    key_source = ephys.Unit & (experiment.BehaviorTrial & 'task LIKE "foraging%"') # granularity = unit level
+    key_source = ephys.Unit & foraging_analysis.SessionTaskProtocol # granularity = unit level
     
     def make(self, key):    
         periods = (experiment.PeriodForaging & 'period NOT IN ("delay_bitcode")').fetch('period')  # 'delay_bitcode' will be used by compute_unit_period_activity if needed
@@ -517,7 +517,7 @@ class UnitPeriodLinearFit(dj.Computed):
     model_p=Null:   float
     """
     
-    key_source = (ephys.Unit & (experiment.BehaviorTrial & 'task LIKE "foraging%"')) * LinearModelPeriodToFit * LinearModelBehaviorModelToFit * LinearModel
+    key_source = (ephys.Unit & foraging_analysis.SessionTaskProtocol) * LinearModelPeriodToFit * LinearModelBehaviorModelToFit * LinearModel
 
     class Param(dj.Part):
         definition = """
