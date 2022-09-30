@@ -517,7 +517,7 @@ class UnitPeriodLinearFit(dj.Computed):
     model_p=Null:   float
     """
     
-    key_source = (ephys.Unit & foraging_analysis.SessionTaskProtocol - experiment.PhotostimForagingTrial
+    key_source = (ephys.Unit & foraging_analysis.SessionTaskProtocol - experiment.PhotostimForagingTrial - (ephys.Unit.proj() & {'subject_id': 473361, 'session': 48})
                  ) * LinearModelPeriodToFit * LinearModelBehaviorModelToFit * LinearModel
 
     class Param(dj.Part):
@@ -537,8 +537,9 @@ class UnitPeriodLinearFit(dj.Computed):
         period, behavior_model = key['period'], key['behavior_model']
 
         # Parse period
-        if period in ['delay'] and not ephys.TrialEvent & key & 'trial_event_type = "zaberready"':
-            period = period + '_bitcode'  # Manually correction of bitcodestart to zaberready, if necessary
+        # No longer need this because it has been handled during UnitPeriodActivity
+        # if period in ['delay'] and not ephys.TrialEvent & key & 'trial_event_type = "zaberready"':
+        #     period = period + '_bitcode'  # Manually correction of bitcodestart to zaberready, if necessary
 
         # Parse behavioral model_id
         if behavior_model.isnumeric():
