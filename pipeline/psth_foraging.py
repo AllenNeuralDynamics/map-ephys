@@ -517,7 +517,8 @@ class UnitPeriodLinearFit(dj.Computed):
     model_p=Null:   float
     """
     
-    key_source = (ephys.Unit & foraging_analysis.SessionTaskProtocol) * LinearModelPeriodToFit * LinearModelBehaviorModelToFit * LinearModel
+    key_source = (ephys.Unit & foraging_analysis.SessionTaskProtocol - experiment.PhotostimForagingTrial
+                 ) * LinearModelPeriodToFit * LinearModelBehaviorModelToFit * LinearModel
 
     class Param(dj.Part):
         definition = """
