@@ -21,22 +21,24 @@ my_tables = [
         # Round 1 - model fitting
         [
             foraging_model.FittedSessionModel,
-            foraging_model.FittedSessionModelComparison
+            foraging_model.FittedSessionModelComparison,
+            psth_foraging.UnitPeriodActivity,
             ],
         # Round 2 - ephys
         [
-            # psth_foraging.UnitPeriodLinearFit,
-            ephys.UnitWaveformWidth,
+            psth_foraging.UnitPeriodLinearFit,
+            # ephys.UnitWaveformWidth,
         ],
         # Round 3 - reports
-        [
-            # report.SessionLevelForagingSummary,
-            # report.SessionLevelForagingLickingPSTH
-            report.UnitLevelForagingEphysReportAllInOne
-        ]
+        # [
+        #     # report.SessionLevelForagingSummary,
+        #     # report.SessionLevelForagingLickingPSTH
+        #     report.UnitLevelForagingEphysReportAllInOne
+        # ]
         ]
 
 def populatemytables_core(arguments, runround):
+    dj.conn().connect()
     for table in my_tables[runround]:
         table.populate(**arguments)
         
@@ -45,13 +47,15 @@ def show_progress(rounds):
     print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), flush=True)
     for runround in rounds:
         for table in my_tables[runround]:
-            finished_in_current_key_source = len(table & table.key_source.proj())
-            total_in_current_key_source = len(table.key_source.proj())
-            print(f'{table.__name__}: '
-                  f'{finished_in_current_key_source} / {total_in_current_key_source} = '
-                  f'{finished_in_current_key_source / total_in_current_key_source:.3%},'
-                  f'to do: {total_in_current_key_source - finished_in_current_key_source}',
-                  flush=True)
+            table.progress()
+            # finished_in_current_key_source = len(table.key_source.proj() & table)
+            # total_in_current_key_source = len(table.key_source.proj())
+            # print(f'{table.__name__}: '
+            #       f'{finished_in_current_key_source} / {total_in_current_key_source} = '
+            #       f'{finished_in_current_key_source / total_in_current_key_source:.3%},'
+            #       f'to do: {total_in_current_key_source - finished_in_current_key_source}',
+            #       flush=True)
+        print(f'', flush=True)
     print('------------------------\n', flush=True)
         
 def populatemytables(paralel = True, cores = 9, all_rounds = range(len(my_tables))):
@@ -94,7 +98,7 @@ if __name__ == '__main__' and use_ray == False:  # This is a workaround for mp.a
     cores = int(mp.cpu_count()) - 1  # Auto core number selection
     pool = mp.Pool(processes=cores)
     
-    populatemytables(paralel=True, cores=cores, all_rounds=[0, 1])
+    populatemytables(paralel=True, cores=cores, all_rounds=range(len(my_tables)))
     
     if pool != '':
         pool.close()
