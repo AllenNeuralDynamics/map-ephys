@@ -651,8 +651,7 @@ def export_foraging_behavior():
     
 
     # %%
-    foraging_sessions = ((experiment.Session * lab.WaterRestriction) & (experiment.BehaviorTrial & 'task_protocol = 100')
-                         )# Two-lickport foraging
+    foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol = 100') * lab.WaterRestriction  # Two-lickport foraging
     
     all_foraging_subject = (dj.U('water_restriction_number') & foraging_sessions).fetch('KEY')
     for subject_key in all_foraging_subject:

@@ -782,7 +782,7 @@ class UnitLevelForagingEphysReport(dj.Computed):
     unit_foraging_psth: filepath@report_store # psth plots for a particular unit
     """
     
-    foraging_sessions = (experiment.Session * lab.WaterRestriction) & (experiment.BehaviorTrial & 'task_protocol = 100')  # Two-lickport foraging
+    foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol = 100') * lab.WaterRestriction  # Two-lickport foraging
     all_unit_qc = (ephys.Unit * ephys.ClusterMetric * ephys.UnitStat) & foraging_sessions & 'presence_ratio > 0.95' & 'amplitude_cutoff < 0.1' & 'isi_violation < 0.5' & 'unit_amp > 70'
     key_source = ephys.Unit & foraging_model.FittedSessionModel & all_unit_qc.proj()
 
@@ -845,7 +845,7 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
     unit_foraging_all_in_one: filepath@report_store  # all in one figure (Jeremiah)
     """
     
-    foraging_sessions = (experiment.Session * lab.WaterRestriction) & (experiment.BehaviorTrial & 'task_protocol = 100')  # Two-lickport foraging
+    foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol = 100') * lab.WaterRestriction  # Two-lickport foraging
     all_unit_qc = ((ephys.Unit * ephys.ClusterMetric * ephys.UnitStat) & foraging_sessions 
                    & 'presence_ratio > 0.9' & 'amplitude_cutoff < 0.1' & 'isi_violation < 0.5' & 'unit_amp > 70')
     
