@@ -9,7 +9,7 @@ import seaborn as sns
 import itertools
 import pandas as pd
 
-from pipeline import experiment, ephys, psth, lab, histology, ccf, psth_foraging
+from pipeline import experiment, ephys, foraging_analysis, psth, lab, histology, ccf, psth_foraging
 
 from pipeline.plot.util import (_plot_with_sem, _extract_one_stim_dur,
                                 _plot_stacked_psth_diff, _plot_avg_psth, _jointplot_w_hue)
@@ -17,8 +17,9 @@ from pipeline.plot import unit_psth
 from pipeline.util import (_get_units_hemisphere, _get_trial_event_times,
                            _get_stim_onset_time, _get_clustering_method)
 
-foraging_trials = experiment.BehaviorTrial & 'task LIKE "foraging%"'
-foraging_sess = (experiment.Session & foraging_trials) 
+# foraging_trials = experiment.BehaviorTrial & 'task LIKE "foraging%"'
+# foraging_sess = (experiment.Session & foraging_trials) 
+foraging_sess = foraging_analysis.SessionTaskProtocol & 'session_task_protocol = 100'
 
 from . import PhotostimError
 
@@ -980,7 +981,6 @@ def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe'):
             ax.axvline(x=1.96, color='k', linestyle=':')
 
             for area in areas:
-                print('     area...')
                 this_ts = (q_all & {'var_name': lv, 'period': ep, 'annotation': area}).fetch('t')
                 values, bin = np.histogram(np.abs(this_ts), 100)
                 ax.plot(bin[:-1], np.cumsum(values)/len(this_ts), label=f'{area}, n = {len(this_ts)}')

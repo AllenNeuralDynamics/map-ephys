@@ -17,9 +17,8 @@ from matplotlib.gridspec import GridSpec
 import itertools
 
 from pipeline import lab, foraging_model, util, foraging_analysis, experiment, ephys, histology, ccf
-from pipeline.plot import behavior_plot, unit_characteristic_plot, unit_psth, histology_plot, PhotostimError, foraging_plot, foraging_model_plot
+from pipeline.plot import behavior_plot, unit_characteristic_plot, unit_psth, histology_plot, PhotostimError, foraging_plot
 from pipeline.plot.util import moving_average
-from pipeline.report import UnitLevelForagingEphysReportAllInOne
 #%%
 
 # plt.rcParams.update({'font.size': 14, 'figure.dpi': 150})
@@ -462,7 +461,9 @@ def plot_unit_all_in_one(key):
     sns.despine(ax=ax, trim=True)
 
     # -- spike widths --
-    half_width_this_session = (ephys.UnitWaveformWidth & (experiment.Session & key) & UnitLevelForagingEphysReportAllInOne.all_unit_qc
+    half_width_this_session = (ephys.UnitWaveformWidth & (experiment.Session & key) & 
+                               (ephys.Unit * ephys.ClusterMetric * ephys.UnitStat & 
+                                'presence_ratio > 0.9' & 'amplitude_cutoff < 0.1' & 'isi_violation < 0.5' & 'unit_amp > 70')
                                ).fetch('waveform_width')
     ax = fig.add_subplot(gs_qc[1, 0])
     ax.hist(half_width_this_session, 30, color='b')

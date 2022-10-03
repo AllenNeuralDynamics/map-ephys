@@ -10,7 +10,7 @@ from . import (lab, experiment, ephys)
 [lab, experiment, ephys]  # NOQA
 
 from . import get_schema_name, dict_to_hash, create_schema_settings
-from pipeline import foraging_model
+from pipeline import foraging_model, foraging_analysis
 from pipeline.util import _get_unit_independent_variable
 
 schema = dj.schema(get_schema_name('psth_foraging'), **create_schema_settings)
@@ -476,6 +476,34 @@ class LinearModelBehaviorModelToFit(dj.Lookup):
 
 
 @schema
+class UnitPeriodActivity(dj.Computed):
+    definition = """
+    -> ephys.Unit
+    -> experiment.PeriodForaging
+    ---
+    trial:          longblob  # Actual trials
+    spike_counts:   longblob
+    durations:      longblob
+    firing_rates:   longblob
+    """
+
+    key_source = ephys.Unit & foraging_analysis.SessionTaskProtocol # granularity = unit level
+    
+    def make(self, key):    
+        periods = (experiment.PeriodForaging & 'period NOT IN ("delay_bitcode")').fetch('period')  # 'delay_bitcode' will be used by compute_unit_period_activity if needed
+
+        period_selectivities = []
+        for period in periods:
+            period_selectivities.append(_compute_unit_period_activity(key, period))
+            
+        UnitPeriodActivity.insert([{**key, 
+                                    **period_sel, 
+                                    'period': period} 
+                                   for (period_sel, period) in zip(period_selectivities, periods)])
+        
+
+    
+@schema
 class UnitPeriodLinearFit(dj.Computed):
     definition = """
     -> ephys.Unit
@@ -488,8 +516,9 @@ class UnitPeriodLinearFit(dj.Computed):
     model_r2_adj=Null:   float  # r square adj.
     model_p=Null:   float
     """
-
-    key_source = (ephys.Unit & (experiment.BehaviorTrial & 'task LIKE "foraging%"')) * LinearModelPeriodToFit * LinearModelBehaviorModelToFit * LinearModel
+    
+    key_source = (ephys.Unit & foraging_analysis.SessionTaskProtocol - experiment.PhotostimForagingTrial - (ephys.Unit.proj() & {'subject_id': 473361, 'session': 48})
+                 ) * LinearModelPeriodToFit * LinearModelBehaviorModelToFit * LinearModel
 
     class Param(dj.Part):
         definition = """
@@ -508,8 +537,9 @@ class UnitPeriodLinearFit(dj.Computed):
         period, behavior_model = key['period'], key['behavior_model']
 
         # Parse period
-        if period in ['delay'] and not ephys.TrialEvent & key & 'trial_event_type = "zaberready"':
-            period = period + '_bitcode'  # Manually correction of bitcodestart to zaberready, if necessary
+        # No longer need this because it has been handled during UnitPeriodActivity
+        # if period in ['delay'] and not ephys.TrialEvent & key & 'trial_event_type = "zaberready"':
+        #     period = period + '_bitcode'  # Manually correction of bitcodestart to zaberready, if necessary
 
         # Parse behavioral model_id
         if behavior_model.isnumeric():
@@ -523,15 +553,17 @@ class UnitPeriodLinearFit(dj.Computed):
         if_intercept = (LinearModel & key).fetch1('if_intercept')
 
         # Get data
-        period_activity = compute_unit_period_activity(key, period)
+        #  period_activity = compute_unit_period_activity(key, period)
+        period_activity = (UnitPeriodActivity & key & {'period': period}).fetch1('trial', 'firing_rates')
+        
         all_iv = _get_unit_independent_variable(key, model_id=model_id)
 
         # TODO Align ephys event with behavior using bitcode! (and save raw bitcodes)
         trial = all_iv.trial  # Without ignored trials
-        trial_with_ephys = trial <= max(period_activity['trial'])
+        trial_with_ephys = trial <= max(period_activity[0])
         trial = trial[trial_with_ephys]  # Truncate behavior trial to max ephys length (this assumes the first trial is aligned, see ingest.ephys)
         all_iv = all_iv[trial_with_ephys]  # Also truncate all ivs
-        firing = period_activity['firing_rates'][trial - 1]  # Align ephys trial and model trial (e.g., no ignored trials in model fitting)
+        firing = period_activity[1][trial - 1]  # Align ephys trial and model trial (e.g., no ignored trials in model fitting)
 
         # -- Fit --
         y = pd.DataFrame({f'{period} firing': firing})
@@ -558,6 +590,7 @@ class UnitPeriodLinearFit(dj.Computed):
                                 'p': model_fit.pvalues[para],
                                 't': model_fit.tvalues[para]
                                 })
+
 
 
 # ============= Helpers =============
@@ -638,7 +671,7 @@ def compute_unit_psth_and_raster(unit_key, trial_keys, align_type='go_cue', bin_
                 psth=psth, psth_per_trial=psth_per_trial, raster=raster)
 
 
-def compute_unit_period_activity(unit_key, period):
+def _compute_unit_period_activity(unit_key, period):
     """
     Given unit and period, compute average firing rate over trials
     I tried to put this in a table, but it's too slow... (too many elements)

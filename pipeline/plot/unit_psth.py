@@ -478,8 +478,10 @@ def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'inse
     # 2. Period activity
     for pp in period:
        
-        period_activity = psth_foraging.compute_unit_period_activity(unit_key, pp)
-
+        #  period_activity = psth_foraging.compute_unit_period_activity(unit_key, pp)
+        period_activity = (psth_foraging.UnitPeriodActivity & unit_key & {'period': pp}
+                           ).fetch('trial', 'firing_rates', as_dict=True)[0]
+        
         #TODO Align ephys event with behavior using bitcode! (and save raw bitcodes)
         trial = all_iv.trial   # Original trial numbers but without ignored trials
         trial_with_ephys = trial <= max(period_activity['trial'])
