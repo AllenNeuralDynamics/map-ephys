@@ -6,15 +6,11 @@ from pathlib import Path
 from streamlit_util import aggrid_interactive_table
 
 cache_folder = './app/'
-always_refetch = True
 
-#%%
+st.set_page_config(layout="wide", page_title='Foraging unit navigator')
 
-st.set_page_config(page_title='Foraging unit navigator', layout="wide")
-
-"""
-Hello world 
-"""
+always_refetch = st.checkbox('Always refetch', value=False)
+ephys_only = st.checkbox('Ephys only', value=True)
 
 #%%
 def fetch_ephys_units():
@@ -34,7 +30,7 @@ def fetch_ephys_units():
                 * t_iti_delta_Q * t_trial_delta_Q
                 ).fetch())
     
-    df_all_unit.to_csv(cache_folder + 'all_unit.csv')
+    df_all_unit.to_csv(cache_folder + 'ephys_units.csv', index=False)
     
     return df_all_unit
 
@@ -65,7 +61,7 @@ def fetch_sessions():
                                .fetch()
                                 )
     # df_sessions['session_date'] = pd.to_datetime(df_sessions['session_date'], format="%Y-%m-%d")
-    df_sessions.to_csv(cache_folder + 'sessions.csv')
+    df_sessions.to_csv(cache_folder + 'sessions.csv', index=False)
     
     return df_sessions
 
@@ -102,7 +98,10 @@ df = load_data(['sessions', 'ephys_units'])
 col1, col2 = st.columns(2, gap='small')
 
 with col1:
-    selection = aggrid_interactive_table(df=df['sessions'])
+    if ephys_only:
+        selection = aggrid_interactive_table(df=df['sessions'].query('ephys_insertions > 0'))
+    else:
+        selection = aggrid_interactive_table(df=df['sessions'])
     # selection_units = aggrid_interactive_table(df=df['ephys_units'])
    
 with col2:
