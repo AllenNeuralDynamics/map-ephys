@@ -1,3 +1,4 @@
+from email import header
 import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
@@ -20,6 +21,14 @@ def aggrid_interactive_table(df: pd.DataFrame):
 
     options.configure_side_bar()
     options.configure_selection("single")
+    options.configure_column(field="session", sort="asc")
+    options.configure_column(field="water_restriction_number", hide=True, rowGroup=True)
+    options.configure_column(field="session_date", type=["customDateTimeFormat"], custom_format_string='yyyy-MM-dd')
+    options.configure_column(field="ephys_insertions", dateType="DateType")
+    
+    # options.configure_column(field="water_restriction_number", header_name="subject", 
+    #                          children=[dict(field="water_restriction_number", rowGroup=True),
+    #                                    dict(field="session")])
     
     selection = AgGrid(
         df,
@@ -28,7 +37,7 @@ def aggrid_interactive_table(df: pd.DataFrame):
         theme="balham",
         update_mode=GridUpdateMode.MODEL_CHANGED,
         allow_unsafe_jscode=True,
-        height=500,
+        height=1000,
         columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS,
     )
 
