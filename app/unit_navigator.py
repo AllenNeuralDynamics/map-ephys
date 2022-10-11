@@ -2,8 +2,12 @@
 import pandas as pd
 import streamlit as st
 from pathlib import Path
+import matplotlib.pyplot as plt
 
 from streamlit_util import aggrid_interactive_table
+from pipeline import experiment, ephys, lab, psth_foraging, report, foraging_analysis
+from pipeline.plot import foraging_model_plot
+import datajoint as dj; dj.conn().connect()
 
 cache_folder = './app/'
 
@@ -95,16 +99,22 @@ def load_data(tables=['sessions']):
     
 
 df = load_data(['sessions', 'ephys_units'])
-col1, col2 = st.columns(2, gap='small')
 
+
+col1, col2 = st.columns([1, 3], gap='small')
 with col1:
     if ephys_only:
         selection = aggrid_interactive_table(df=df['sessions'].query('ephys_insertions > 0'))
     else:
         selection = aggrid_interactive_table(df=df['sessions'])
     # selection_units = aggrid_interactive_table(df=df['ephys_units'])
-   
+
 with col2:
     if selection:
-        st.write("You selected:")
-        st.json(selection["selected_rows"])
+        # st.write("You selected:")
+        # st.json(selection["selected_rows"])
+        
+        fig = plt.figure(figsize=(8, 3), constrained_layout=True)
+        ax = fig.subplots(1,1)
+        foraging_model_plot.plot_session_fitted_choice(selection["selected_rows"], ax=ax, remove_ignored=False, first_n=2)
+        st.pyplot(fig)
