@@ -388,11 +388,17 @@ def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'ses
         plt.subplots_adjust(top=0.8)
             # Add unit and model info
         latent_var_desc = (psth_foraging.IndependentVariable & {'var_name': latent_variable}).fetch1('desc')
+        
+        try:
+            region_name = (((ephys.Unit & unit_key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")
+        except:
+            region_name = 'unknown'
+            
         unit_info = (f'{(lab.WaterRestriction & unit_key).fetch1("water_restriction_number")}, '
                     f'Session {(experiment.Session & unit_key).fetch1("session")}, {(experiment.Session & unit_key).fetch1("session_date")}, '
                     f'imec {unit_key["insertion_number"]-1}\n'
                     f'Unit #{unit_key["unit"]}, '
-                    f'{(((ephys.Unit & unit_key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")}\n'
+                    f'{region_name}\n'
                     f'=== Grouped by: {latent_var_desc} ==='
                     )
         id, model_notation, desc, accuracy, n = (foraging_model.FittedSessionModel * foraging_model.Model.proj(..., '-n_params') & unit_key & {'model_id': model_id}).fetch1(
