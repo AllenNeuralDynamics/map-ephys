@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import itertools
 import pandas as pd
+from tqdm import tqdm
 
 from pipeline import experiment, ephys, foraging_analysis, psth, lab, histology, ccf, psth_foraging
 
@@ -921,7 +922,7 @@ def plot_paired_coding_direction(unit_g1, unit_g2, labels=None, time_period=None
 
 
 # ========== Foraging task ==========
-def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe'):
+def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe', order_by={'var_name': 'relative_action_value_ic', 'period': 'iti_all'}, first_n=10, min_num_unit=10, color='ccf'):
 #%%
     # linear_model='Q_c + Q_i + rpe'
     print('define queries...')
@@ -935,7 +936,7 @@ def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe'):
             #   # & 'drift_metric < 0.1'
               )
 
-    q_hist = (q_unit * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation
+    q_hist = (q_unit * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation & psth_foraging.UnitPeriodLinearFit
     q_unit_n = dj.U('annotation').aggr(q_hist, area_num_units='count(*)')
     q_hist *= q_unit_n
 
@@ -964,12 +965,18 @@ def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe'):
 
 #%%
     # -- t distribution --
-    epochs = ['delay', 'go_to_end', 'iti_first_2', 'iti_last_2']
+    epochs = ['delay', 'go_to_end', 'iti_first_2', 'iti_last_2', 'iti_all']
     fig, axs = plt.subplots(len(lvs), len(epochs), figsize=(4*len(epochs), 4*len(lvs)))
-    areas = q_unit_n.fetch(order_by='area_num_units desc', format='frame')
-
+    
+    if type(order_by) is dict:
+        area_order = dj.U('annotation').aggr(q_all & order_by & f'area_num_units>{min_num_unit}', area_agg='AVG(ABS(t))')
+    else:
+        area_order = dj.U('annotation').aggr(q_hist, area_agg='COUNT(*)')
+    
+    df_areas = (area_order * ccf.CCFBrainRegion.proj(..., annotation='region_name')).fetch(order_by='area_agg desc', format='frame')
+    df_areas = df_areas.reset_index()[:first_n]
+    
     # Areas that have most number of neurons
-    areas = list(areas.index[:10])
     print('plotting t-distributions')
         
     for i, lv in enumerate(lvs):
@@ -979,11 +986,12 @@ def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe'):
             ax = axs[i, j]
             ax.axhline(y=0.95, color='k', linestyle=':')
             ax.axvline(x=1.96, color='k', linestyle=':')
-
-            for area in areas:
-                this_ts = (q_all & {'var_name': lv, 'period': ep, 'annotation': area}).fetch('t')
+            
+            for _, area in df_areas.iterrows():
+                this_ts = (q_all & {'var_name': lv, 'period': ep, 'annotation': area['annotation']}).fetch('t')
                 values, bin = np.histogram(np.abs(this_ts), 100)
-                ax.plot(bin[:-1], np.cumsum(values)/len(this_ts), label=f'{area}, n = {len(this_ts)}')
+                ax.plot(bin[:-1], np.cumsum(values)/len(this_ts), label=f'{area["annotation"]}, n = {len(this_ts)}', 
+                        **dict(color=f'#{area["color_code"]}') if color=='ccf' else {})
 
             ax.set(xlim=(0, 10))
             ax.label_outer()
@@ -994,8 +1002,14 @@ def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe'):
                 ax.set_ylabel(lv)
             if i == len(lvs) - 1 and j == 0:
                 ax.set_xlabel('|t value|')
+            
+            if lv == order_by['var_name'] and ep == order_by['period']:
+                ax.spines['bottom'].set_color('red')
+                ax.spines['top'].set_color('red') 
+                ax.spines['right'].set_color('red')
+                ax.spines['left'].set_color('red')
     
-    ax.legend(bbox_to_anchor=(-1,3), loc='upper left')
+    ax.legend(bbox_to_anchor=(1, 1), loc='upper left', fontsize=8)
 
 #%%
     # -- ipsi and contra action value weights --
@@ -1020,7 +1034,7 @@ def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe'):
             ax.axvline(x=-2, color='k', ls='--', lw=.5)
             ax.axvline(x=2, color='k', ls='--', lw=.5)
 
-            print(f'    fetch data for {ep}, {area}...')
+            # print(f'    fetch data for {ep}, {area}...')
             df = pd.DataFrame((q_all
                                & {'annotation': area}
                                & {'period': ep}).proj('beta', 'p', 'area_num_units', 't').fetch())
@@ -1032,7 +1046,7 @@ def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe'):
                                 'clustering_method', 'unit', 'annotation', 'area_num_units'], 
                                 columns='var_name', values='p')
             sizes = 2 + 2 * np.sum(ps.values < 0.05, axis=1)
-            ax.scatter(x=betas[lvs[0]], y=betas[lvs[1]], s=sizes)
+            ax.scatter(x=betas[lvs[0]], y=betas[lvs[1]], s=sizes, *dict(color=f'#{area["color_code"]}') if color=='ccf' else {})
             ax.set_xlim([-20, 20])
             ax.set_ylim([-20, 20])
             ax.set_xlabel(lvs[0])
