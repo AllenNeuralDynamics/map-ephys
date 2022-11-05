@@ -381,77 +381,81 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
 
 
     # =============================== BEHAVIOR TRIALS' EVENTS ===============================
-    # TODO: add trial events here
 
     behavioral_event = pynwb.behavior.BehavioralEvents(name='BehavioralEvents')
     nwbfile.add_acquisition(behavioral_event)
 
     # ---- behavior events
-
-    q_trial_event = (experiment.TrialEvent * experiment.SessionTrial & session_key).proj(
-        'trial_event_type',
-        event_start='trial_event_time + start_time',
-        event_stop='trial_event_time + start_time + duration')
+    q_trial_event = ephys.TrialEvent & session_key
+    first_trial_bitcode_start = (q_trial_event & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time')
+    q_trial_event = q_trial_event.proj(trial_event_type='trial_event_type', trial_event_time=f'trial_event_time - {first_trial_bitcode_start}')  # Align with ephys: 0 = first trial start
 
     for trial_event_type in (experiment.TrialEventType & q_trial_event).fetch('trial_event_type'):
-        trial, event_starts, event_stops = (q_trial_event
+        trial, trial_event_time = (q_trial_event
                                             & {'trial_event_type': trial_event_type}).fetch(
-            'trial', 'event_start', 'event_stop', order_by='trial')
-
+            'trial', 'trial_event_time', order_by='trial')
+        
         behavioral_event.create_timeseries(
-            name=trial_event_type + '_start_times',
+            name=trial_event_type,
             unit='a.u.', conversion=1.0,
-            data=np.full_like(event_starts.astype(float), 1),
-            timestamps=event_starts.astype(float))
+            data=np.full_like(trial_event_time.astype(float), 1),
+            timestamps=trial_event_time.astype(float),
+            description='time (second) relative to the first trial start (aligned with ephys)')         
 
-        behavioral_event.create_timeseries(
-            name=trial_event_type + '_stop_times',
-            unit='a.u.', conversion=1.0,
-            data=np.full_like(event_stops.astype(float), 1),
-            timestamps=event_stops.astype(float))
+        # behavioral_event.create_timeseries(
+        #     name=trial_event_type + '_start_times',
+        #     unit='a.u.', conversion=1.0,
+        #     data=np.full_like(event_starts.astype(float), 1),
+        #     timestamps=event_starts.astype(float))
+
+        # behavioral_event.create_timeseries(
+        #     name=trial_event_type + '_stop_times',
+        #     unit='a.u.', conversion=1.0,
+        #     data=np.full_like(event_stops.astype(float), 1),
+        #     timestamps=event_stops.astype(float))
 
     # ---- action events
 
-    q_action_event = (experiment.ActionEvent * experiment.SessionTrial & session_key).proj(
-        'action_event_type',
-        event_time='action_event_time + start_time')
+    q_action_event = ephys.ActionEvent & session_key
+    q_action_event = q_action_event.proj(action_event_type='action_event_type', action_event_time=f'action_event_time - {first_trial_bitcode_start}')  # Align with ephys: 0 = first trial start
 
     for action_event_type in (experiment.ActionEventType & q_action_event).fetch('action_event_type'):
-        trial, event_starts = (q_action_event
+        trial, action_event_time = (q_action_event
                                & {'action_event_type': action_event_type}).fetch(
-            'trial', 'event_time', order_by='trial')
+            'trial', 'action_event_time', order_by='trial')
 
         behavioral_event.create_timeseries(
-            name=action_event_type.replace(' ', '_') + '_times',
+            name=action_event_type.replace(' ', '_'),
             unit='a.u.', conversion=1.0,
-            data=np.full_like(event_starts.astype(float), 1),
-            timestamps=event_starts.astype(float))
+            data=np.full_like(action_event_time.astype(float), 1),
+            timestamps=action_event_time.astype(float),
+            description='time (second) relative to the first trial start (aligned with ephys)')
 
-    # ---- photostim events ----
+    # # ---- photostim events ----
 
-    q_photostim_event = (experiment.PhotostimEvent
-                         * experiment.Photostim.proj('duration')
-                         * experiment.SessionTrial
-                         & session_key).proj(
-        'trial', 'power', 'photostim_event_time',
-        event_start='photostim_event_time + start_time',
-        event_stop='photostim_event_time + start_time + duration')
+    # q_photostim_event = (experiment.PhotostimEvent
+    #                      * experiment.Photostim.proj('duration')
+    #                      * experiment.SessionTrial
+    #                      & session_key).proj(
+    #     'trial', 'power', 'photostim_event_time',
+    #     event_start='photostim_event_time + start_time',
+    #     event_stop='photostim_event_time + start_time + duration')
 
-    trials, event_starts, event_stops, powers, photo_stim = q_photostim_event.fetch(
-        'trial', 'event_start', 'event_stop', 'power', 'photo_stim', order_by='trial')
+    # trials, event_starts, event_stops, powers, photo_stim = q_photostim_event.fetch(
+    #     'trial', 'event_start', 'event_stop', 'power', 'photo_stim', order_by='trial')
 
-    behavioral_event.create_timeseries(
-        name='photostim_start_times', unit='mW', conversion=1.0,
-        description='Timestamps of the photo-stimulation and the corresponding powers (in mW) being applied',
-        data=powers.astype(float),
-        timestamps=event_starts.astype(float),
-        control=photo_stim.astype('uint8'), control_description=stim_sites)
-    behavioral_event.create_timeseries(
-        name='photostim_stop_times', unit='mW', conversion=1.0,
-        description='Timestamps of the photo-stimulation being switched off',
-        data=np.full_like(event_starts.astype(float), 0),
-        timestamps=event_stops.astype(float),
-        control=photo_stim.astype('uint8'), control_description=stim_sites)
+    # behavioral_event.create_timeseries(
+    #     name='photostim_start_times', unit='mW', conversion=1.0,
+    #     description='Timestamps of the photo-stimulation and the corresponding powers (in mW) being applied',
+    #     data=powers.astype(float),
+    #     timestamps=event_starts.astype(float),
+    #     control=photo_stim.astype('uint8'), control_description=stim_sites)
+    # behavioral_event.create_timeseries(
+    #     name='photostim_stop_times', unit='mW', conversion=1.0,
+    #     description='Timestamps of the photo-stimulation being switched off',
+    #     data=np.full_like(event_starts.astype(float), 0),
+    #     timestamps=event_stops.astype(float),
+    #     control=photo_stim.astype('uint8'), control_description=stim_sites)
 
     # ----- Raw Video Files -----
     if raw_video:
