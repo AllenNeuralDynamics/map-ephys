@@ -8,7 +8,8 @@ from datajoint.errors import DataJointError
 import pynwb
 from pynwb import NWBFile, NWBHDF5IO
 
-from pipeline import lab, experiment, tracking, ephys, histology, psth, ccf
+from pipeline import lab, experiment, tracking, ephys, histology, psth, ccf, foraging_model
+from pipeline.util import _get_session_independent_variable
 from pipeline.report import get_wr_sessdatetime
 from pipeline.ingest import ephys as ephys_ingest
 from pipeline.ingest import tracking as tracking_ingest
@@ -209,7 +210,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
         electrode_ind = electrode_df.electrode_id[electrode_df.group_name == electrode_group.name]  # index: index in nwbfile.electrodes; value: original electrode index in that probe
 
         # ---- Units ----
-        unit_query = units_query & insert_key   # TODO: add qc here
+        unit_query = units_query & insert_key
         for unit in unit_query.fetch(as_dict=True, order_by='unit'):
             # make an electrode table region (which electrode(s) is this unit coming from)
             unit['unit_id'] = unit.pop('unit')
@@ -330,19 +331,23 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
     #                                                 unit='a.u.',
     #                                                 conversion=1.0)
 
-    # =============================== BEHAVIOR TRIALS ===============================
-    # TODO: add latent variable here
-    # ---- TrialSet ----
+    # =============================== BEHAVIOR TRIALS ===============================     
     q_photostim = (experiment.PhotostimEvent
                    * experiment.Photostim & session_key).proj(
         'photostim_event_time', 'power', 'duration')
-    q_trial = experiment.SessionTrial * experiment.BehaviorTrial & session_key
-    q_trial = q_trial.aggr(
-        q_photostim, ...,
-        photostim_onset='IFNULL(GROUP_CONCAT(photostim_event_time SEPARATOR ", "), "N/A")',
-        photostim_power='IFNULL(GROUP_CONCAT(power SEPARATOR ", "), "N/A")',
-        photostim_duration='IFNULL(GROUP_CONCAT(duration SEPARATOR ", "), "N/A")',
-        keep_all_rows=True)
+    q_trial = experiment.SessionTrial * experiment.BehaviorTrial & session_key 
+    q_trial *= experiment.WaterPortChoice.proj(choice='water_port')  # Add choice
+    
+    model_id = 20  # Hard-coded model_id (Hattori with choice kernel)
+    
+    _, df_latent = _get_session_independent_variable(session_key, model_id=model_id)
+    
+    # q_trial = q_trial.aggr(
+    #     q_photostim, ...,
+    #     photostim_onset='IFNULL(GROUP_CONCAT(photostim_event_time SEPARATOR ", "), "N/A")',
+    #     photostim_power='IFNULL(GROUP_CONCAT(power SEPARATOR ", "), "N/A")',
+    #     photostim_duration='IFNULL(GROUP_CONCAT(duration SEPARATOR ", "), "N/A")',
+    #     keep_all_rows=True)
 
     skip_adding_columns = experiment.Session.primary_key 
 
@@ -352,15 +357,28 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                                'description': q_trial.heading.attributes[tag].comment}
                          for tag in q_trial.heading.names
                          if tag not in skip_adding_columns + ['start_time', 'stop_time']}
-
+        
         # Add new table columns to nwb trial-table
         for column in trial_columns.values():
             nwbfile.add_trial_column(**column)
+      
+        nwbfile.add_trial_column(name='left_action_value', description=f'left action value after each trial, from model {model_id}')
+        nwbfile.add_trial_column(name='right_action_value', description=f'right action value after each trial, from model {model_id}')
+        nwbfile.add_trial_column(name='rpe', description=f'reward prediction error of each trial, from model {model_id}')
 
         # Add entries to the trial-table
         for trial in q_trial.fetch(as_dict=True):
             trial['start_time'], trial['stop_time'] = float(trial['start_time']), float(trial['stop_time'])
+            if trial['choice'] is None:
+                trial['choice'] = np.nan
+            
+            if any(df_latent.trial==trial['trial']):
+                trial['left_action_value'], trial['right_action_value'], trial['rpe'] = df_latent.loc[df_latent.trial==trial['trial'], ['left_action_value', 'right_action_value', 'rpe']].values[0]
+            else:
+                trial['left_action_value'], trial['right_action_value'], trial['rpe'] = [np.nan] * 3
+            
             nwbfile.add_trial(**{k: v for k, v in trial.items() if k not in skip_adding_columns})
+
 
     # =============================== BEHAVIOR TRIALS' EVENTS ===============================
     # TODO: add trial events here
