@@ -126,7 +126,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
     # add additional columns to the units table
     if dj.__version__ >= '0.13.0':
         units_query = (ephys.ProbeInsertion.RecordingSystemSetup
-                    * ephys.Unit & session_key).proj(...).join(
+                    * ephys.Unit & session_key).proj(..., '-spike_sites', '-spike_depths').join(    # Remove spike_sites and depths to avoid inhomogeneous error
             ephys.UnitStat, left=True).join(
             ephys.MAPClusterMetric.DriftMetric, left=True).join(
             ephys.ClusterMetric, left=True).join(
@@ -153,12 +153,12 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                                 'electrode', 'waveform', 'annotation_version']
 
     for attr in units_query.heading.names:
-        if attr in units_omitted_attributes:
+        if attr in units_omitted_attributes + ['spike_times']:   # Don't add column `spike_times` to avoid inhomogeneous error (leave it as nwb internal data type that enables DynamicTable (spike_times + spike_times_index))
             continue
         nwbfile.add_unit_column(
             name=units_query.heading.attributes[attr].name,
             description=units_query.heading.attributes[attr].comment)
-
+        
     nwbfile.add_unit_column(name='unit_id', description='original unit_id on one probe')  # Don't use id to avoid confusion
 
     # iterate through curated clusterings and export units data
@@ -370,7 +370,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
         for trial in q_trial.fetch(as_dict=True):
             trial['start_time'], trial['stop_time'] = float(trial['start_time']), float(trial['stop_time'])
             if trial['choice'] is None:
-                trial['choice'] = np.nan
+                trial['choice'] = 'null'
             
             if any(df_latent.trial==trial['trial']):
                 trial['left_action_value'], trial['right_action_value'], trial['rpe'] = df_latent.loc[df_latent.trial==trial['trial'], ['left_action_value', 'right_action_value', 'rpe']].values[0]
