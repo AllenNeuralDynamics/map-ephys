@@ -91,7 +91,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                     file_create_date=datetime.now(tzlocal()),
                     experimenter=list((experiment.Session & session_key).fetch('username')),
                     data_collection='',
-                    institution='Janelia Research Campus',
+                    institution='Janelia Research Campus / Allen Institute',
                     experiment_description=experiment_description,
                     related_publications='',
                     keywords=[])
@@ -122,6 +122,10 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                    'AND presence_ratio > 0.9 '
                    'AND isi_violation < 0.1 '
                    'AND amplitude_cutoff < 0.15'}
+    qc_in_use = unit_qc['minimal']
+    
+    nwbfile.units = pynwb.file.Units(name='units', description=f'unit qc = {qc_in_use}')
+
 
     # add additional columns to the units table
     if dj.__version__ >= '0.13.0':
@@ -130,8 +134,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             ephys.UnitStat, left=True).join(
             ephys.MAPClusterMetric.DriftMetric, left=True).join(
             ephys.ClusterMetric, left=True).join(
-            ephys.WaveformMetric, left=True).join(
-            (histology.ElectrodeCCFPosition.ElectrodePosition * ccf.CCFAnnotation).proj(ccf_annotation='annotation'), left=True)   # Make this immediately available in unit table 
+            ephys.WaveformMetric, left=True)
     else:
         units_query = (ephys.ProbeInsertion.RecordingSystemSetup
                     * ephys.Unit & session_key).proj(...).aggr(
@@ -144,7 +147,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             ephys.WaveformMetric, ..., **{n: n for n in ephys.WaveformMetric.heading.names if n not in ephys.WaveformMetric.heading.primary_key},
             keep_all_rows=True)
 
-    units_query = units_query & unit_qc['minimal']
+    units_query = units_query & qc_in_use
 
     units_omitted_attributes = ['subject_id', 'session',
                                 'clustering_method', 'unit', 'unit_uid', 'probe_type',
@@ -169,8 +172,8 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                 k: str(v) for k, v in (ephys.ProbeInsertion.InsertionLocation.proj()
                                         & insert_key).aggr(
                     ephys.ProbeInsertion.RecordableBrainRegion.proj(
-                        ..., surface_brain_region='CONCAT(hemisphere, " ", brain_area)'),
-                    ..., surface_brain_regions='GROUP_CONCAT(surface_brain_region SEPARATOR ", ")').fetch1().items()
+                        ..., brain_region='CONCAT(hemisphere, " ", brain_area)'),
+                    ..., brain_regions='GROUP_CONCAT(brain_region SEPARATOR ", ")').fetch1().items()
                 if k not in ephys.ProbeInsertion.primary_key}
             insert_location = json.dumps(insert_location)
         else:
@@ -192,9 +195,10 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
 
         electrode_query = (lab.ProbeType.Electrode * lab.ElectrodeConfig.Electrode
                             & electrode_config)
-        electrode_ccf = {e: {'x': float(x), 'y': float(y), 'z': float(z), 'ccf_annotation': annot} for e, x, y, z, annot in zip(
-            *(histology.ElectrodeCCFPosition.ElectrodePosition * ccf.CCFAnnotation
-                & electrode_config).fetch(
+        electrode_ccf = {e: {'x': float(z), 'y': float(y), 'z': 5739 * 2 - float(x),    # Turn DataJoint ccf to real allen_ccf
+                             'ccf_annotation': annot} for e, x, y, z, annot in zip(
+            * (histology.ElectrodeCCFPosition.ElectrodePosition * ccf.CCFAnnotation 
+               & electrode_config).fetch(
                 'electrode', 'ccf_x', 'ccf_y', 'ccf_z', 'annotation'))}
 
         for electrode in electrode_query.fetch(as_dict=True):
@@ -227,6 +231,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                     unit[attr] = np.nan
 
             nwbfile.add_unit(**unit)
+
 
         # ---- Raw Ephys Data ---
         if raw_ephys:
