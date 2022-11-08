@@ -20,3 +20,4 @@ pynwb==2.0.1
 spikeinterface
 nwb-conversion-tools
 opencv-python
+dspca
