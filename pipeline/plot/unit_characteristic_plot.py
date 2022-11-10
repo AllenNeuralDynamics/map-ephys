@@ -927,7 +927,7 @@ def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe', order_by={'var_name
     # linear_model='Q_c + Q_i + rpe'
     print('define queries...')
     q_unit = (((ephys.Unit & foraging_sess) 
-               * ephys.ClusterMetric * ephys.UnitStat * ephys.MAPClusterMetric.DriftMetric)
+               * ephys.ClusterMetric * ephys.UnitStat)
                #* (psth_foraging.UnitPeriodLinearFit * psth_foraging.UnitPeriodLinearFit.Param & {'multi_linear_model': linear_model}))
               & 'presence_ratio > 0.95'
               & 'amplitude_cutoff < 0.1'
@@ -980,15 +980,16 @@ def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe', order_by={'var_name
     print('plotting t-distributions')
         
     for i, lv in enumerate(lvs):
-        print('   lv...')
+        # print('   lv...')
         for j, ep in enumerate(epochs):
-            print('    ep...')
+            # print('    ep...')
             ax = axs[i, j]
             ax.axhline(y=0.95, color='k', linestyle=':')
             ax.axvline(x=1.96, color='k', linestyle=':')
             
             for _, area in df_areas.iterrows():
                 this_ts = (q_all & {'var_name': lv, 'period': ep, 'annotation': area['annotation']}).fetch('t')
+                this_ts = this_ts[~np.isnan(this_ts)]
                 values, bin = np.histogram(np.abs(this_ts), 100)
                 ax.plot(bin[:-1], np.cumsum(values)/len(this_ts), label=f'{area["annotation"]}, n = {len(this_ts)}', 
                         **dict(color=f'#{area["color_code"]}') if color=='ccf' else {})
@@ -1025,7 +1026,7 @@ def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe', order_by={'var_name
     for j, ep in enumerate(['go_to_end', 'iti_all']):
         ax = axs[j]
 
-        for area in areas:
+        for _, area in df_areas.iterrows():
             # if not 'thalamus' in area:
             #     continue
 
@@ -1036,7 +1037,7 @@ def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe', order_by={'var_name
 
             # print(f'    fetch data for {ep}, {area}...')
             df = pd.DataFrame((q_all
-                               & {'annotation': area}
+                               & {'annotation': area['annotation']}
                                & {'period': ep}).proj('beta', 'p', 'area_num_units', 't').fetch())
 
             betas = df.pivot(index=['subject_id', 'session', 'insertion_number',
@@ -1046,7 +1047,7 @@ def plot_unit_period_fit(linear_model='Q_rel + Q_tot + rpe', order_by={'var_name
                                 'clustering_method', 'unit', 'annotation', 'area_num_units'], 
                                 columns='var_name', values='p')
             sizes = 2 + 2 * np.sum(ps.values < 0.05, axis=1)
-            ax.scatter(x=betas[lvs[0]], y=betas[lvs[1]], s=sizes, *dict(color=f'#{area["color_code"]}') if color=='ccf' else {})
+            ax.scatter(x=betas[lvs[0]].values, y=betas[lvs[1]].values, s=sizes, **dict(color=f'#{area["color_code"]}') if color=='ccf' else {})
             ax.set_xlim([-20, 20])
             ax.set_ylim([-20, 20])
             ax.set_xlabel(lvs[0])
@@ -1065,7 +1066,7 @@ def plot_example_cells(sort_lv = 'relative_action_value_ic',
                        best_n = 10, linear_model='Q_rel + Q_tot + rpe'):
     
 #%%
-    q_unit = ((ephys.Unit * ephys.ClusterMetric * ephys.UnitStat * ephys.MAPClusterMetric.DriftMetric)
+    q_unit = ((ephys.Unit * ephys.ClusterMetric * ephys.UnitStat)
               & 'presence_ratio > 0.95'
               & 'amplitude_cutoff < 0.1'
               & 'isi_violation < 0.5' 
