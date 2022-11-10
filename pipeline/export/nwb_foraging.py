@@ -343,6 +343,12 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
     q_trial = experiment.SessionTrial * experiment.BehaviorTrial & session_key 
     q_trial *= experiment.WaterPortChoice.proj(choice='water_port')  # Add choice
     
+    # reward schedule
+    q_p_reward = experiment.BehaviorTrial.proj() * experiment.SessionBlock.BlockTrial * experiment.SessionBlock.WaterPortRewardProbability & session_key
+    p_reward = np.vstack([(q_p_reward & 'water_port="left"').fetch('reward_probability', order_by='trial').astype(float),
+                          (q_p_reward & 'water_port="right"').fetch('reward_probability', order_by='trial').astype(float)])
+ 
+    
     model_id = 20  # Hard-coded model_id (Hattori with choice kernel)
     
     _, df_latent = _get_session_independent_variable(session_key, model_id=model_id)
@@ -367,6 +373,8 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
         for column in trial_columns.values():
             nwbfile.add_trial_column(**column)
       
+        nwbfile.add_trial_column(name='left_reward_prob', description=f'reward refill prob. of the left port')
+        nwbfile.add_trial_column(name='right_reward_prob', description=f'reward refill prob. of the right port')
         nwbfile.add_trial_column(name='left_action_value', description=f'left action value after each trial, from model {model_id}')
         nwbfile.add_trial_column(name='right_action_value', description=f'right action value after each trial, from model {model_id}')
         nwbfile.add_trial_column(name='rpe', description=f'reward prediction error of each trial, from model {model_id}')
@@ -377,10 +385,12 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             if trial['choice'] is None:
                 trial['choice'] = 'null'
             
+            trial['left_reward_prob'], trial['right_reward_prob'] = p_reward[:, trial['trial'] - 1]
+            
             if any(df_latent.trial==trial['trial']):
                 trial['left_action_value'], trial['right_action_value'], trial['rpe'] = df_latent.loc[df_latent.trial==trial['trial'], ['left_action_value', 'right_action_value', 'rpe']].values[0]
             else:
-                trial['left_action_value'], trial['right_action_value'], trial['rpe'] = [np.nan] * 3
+                trial['left_action_value'], trial['right_action_value'], trial['rpe'] = [np.nan] * 3  # Ignored trial
             
             nwbfile.add_trial(**{k: v for k, v in trial.items() if k not in skip_adding_columns})
 
