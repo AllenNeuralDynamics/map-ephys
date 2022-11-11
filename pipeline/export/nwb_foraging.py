@@ -512,3 +512,61 @@ def export_recording(session_keys, output_dir='./', overwrite=False):
             with NWBHDF5IO(output_fp.as_posix(), mode='w') as io:
                 io.write(nwbfile)
                 print(f'\tWrite NWB 2.0 file: {save_file_name}')
+                
+
+##### WORKAROUND FOR NWB IO BUG #############               
+                
+import pandas as pd
+import h5py
+                
+                
+def import_nwb_to_df(filename):
+    with h5py.File(filename, mode='r') as f:
+        g_trials = f['intervals']['trials']
+        g_events = f['acquisition']['BehavioralEvents']
+        g_electrodes = f['general']['extracellular_ephys']['electrodes']
+        g_units = f['units']        
+        
+        df_trials = hdf_group_to_df(g_trials)
+        dict_events = {key: g_events[key]['timestamps'][:] for key in g_events}
+
+        df_units = hdf_group_to_df(g_units)
+        df_electrodes = hdf_group_to_df(g_electrodes)
+       
+    # Add electrode info to units table
+    df_units = df_units.merge(df_electrodes, left_on='electrodes', right_on='id')
+    
+    # Add hemisphere
+    df_units['hemisphere'] = np.where(df_units['z'] <= 5739, 'left', 'right')
+    
+    return [df_trials, dict_events, df_units]
+
+        
+def hdf_group_to_df(group):
+    '''
+    Convert h5py group to dataframe
+    '''
+    
+    tmp_dict = {}
+    
+    # Handle spike_times
+    # see https://nwb-schema.readthedocs.io/en/latest/format_description.html#tables-and-ragged-arrays
+    if 'spike_times' in group.keys():
+        spike_times, spike_times_index = group['spike_times'], group['spike_times_index']
+        unit_spike_times = []
+        for i, idx in enumerate(spike_times_index):
+            start_idx = 0 if i == 0 else spike_times_index[i - 1]
+            unit_spike_times.append(spike_times[start_idx : idx])
+
+        tmp_dict['spike_times'] = unit_spike_times
+
+    # Other keys
+    for key in group:
+        if 'spike_times' in key: continue
+
+        if isinstance(group[key][0], bytes):
+            tmp_dict[key] = list(map(lambda x: x.decode(), group[key][:]))
+        else:
+            tmp_dict[key] = list(group[key][:])
+        
+    return pd.DataFrame(tmp_dict)
