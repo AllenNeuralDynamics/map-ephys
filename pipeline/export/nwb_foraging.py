@@ -404,37 +404,47 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
     q_trial_event = ephys.TrialEvent & session_key
     first_trial_bitcode_start = (q_trial_event & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time')
     q_trial_event = q_trial_event.proj(trial_event_type='trial_event_type', trial_event_time=f'trial_event_time - {first_trial_bitcode_start}')  # Align with ephys: 0 = first trial start
+    unique_trial_event_type = (experiment.TrialEventType & q_trial_event).fetch('trial_event_type')
+    
+    trial_event_to_exclude = ['bitcodestart', 'bpodstart', 'zaberstep']
 
-    for trial_event_type in (experiment.TrialEventType & q_trial_event).fetch('trial_event_type'):
-        trial, trial_event_time = (q_trial_event
-                                            & {'trial_event_type': trial_event_type}).fetch(
+    for trial_event_type in unique_trial_event_type:
+        if trial_event_type in trial_event_to_exclude:
+            continue
+        
+        trial, trial_event_time = (q_trial_event & {'trial_event_type': trial_event_type}).fetch(
             'trial', 'trial_event_time', order_by='trial')
         
         behavioral_event.create_timeseries(
-            name=trial_event_type,
+            name='lickportready' if trial_event_type == 'zaberready' else trial_event_type,
             unit='a.u.', conversion=1.0,
             data=np.full_like(trial_event_time.astype(float), 1),
             timestamps=trial_event_time.astype(float),
             description='time (second) relative to the first trial start (aligned with ephys)')         
 
-        # behavioral_event.create_timeseries(
-        #     name=trial_event_type + '_start_times',
-        #     unit='a.u.', conversion=1.0,
-        #     data=np.full_like(event_starts.astype(float), 1),
-        #     timestamps=event_starts.astype(float))
-
-        # behavioral_event.create_timeseries(
-        #     name=trial_event_type + '_stop_times',
-        #     unit='a.u.', conversion=1.0,
-        #     data=np.full_like(event_stops.astype(float), 1),
-        #     timestamps=event_stops.astype(float))
+    # If there is no zaber feedback, estimate `lickportready` using bitcodestart
+    # see https://github.com/hanhou/map-ephys/blob/26892a06b5877687ba4c95d23cbefa5ab4266033/pipeline/psth_foraging.py#L379
+    offset_bitcodestart_to_zaberready = 0.146
+    
+    if 'zaberready' not in unique_trial_event_type:
+        bitcodestart_time = (q_trial_event & {'trial_event_type': 'bitcodestart'}).fetch(
+                                              'trial_event_time', order_by='trial')
+        
+        behavioral_event.create_timeseries(
+            name='lickportready',
+            unit='a.u.', conversion=1.0,
+            data=np.full_like(bitcodestart_time.astype(float), 1),
+            timestamps=bitcodestart_time.astype(float) + offset_bitcodestart_to_zaberready,
+            description='time (second) relative to the first trial start (aligned with ephys)') 
+        
 
     # ---- action events
 
     q_action_event = ephys.ActionEvent & session_key
     q_action_event = q_action_event.proj(action_event_type='action_event_type', action_event_time=f'action_event_time - {first_trial_bitcode_start}')  # Align with ephys: 0 = first trial start
+    unique_action_event_type = (experiment.ActionEventType & q_action_event).fetch('action_event_type')
 
-    for action_event_type in (experiment.ActionEventType & q_action_event).fetch('action_event_type'):
+    for action_event_type in unique_action_event_type:
         trial, action_event_time = (q_action_event
                                & {'action_event_type': action_event_type}).fetch(
             'trial', 'action_event_time', order_by='trial')
@@ -445,6 +455,26 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             data=np.full_like(action_event_time.astype(float), 1),
             timestamps=action_event_time.astype(float),
             description='time (second) relative to the first trial start (aligned with ephys)')
+        
+    # If no lick time in ephys NI, use bpod time
+    if 'left lick' not in unique_action_event_type:
+        first_trial_bitcode_start = (ephys.TrialEvent & session_key & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time')
+        q_action_global_from_bpod = ((experiment.ActionEvent & session_key)
+                                     * (experiment.TrialEvent & 'trial_event_type = "go"').proj(go_bpod='trial_event_time')
+                                     * (ephys.TrialEvent & 'trial_event_type = "go"').proj(go_global='trial_event_time')
+                                     ).proj(..., action_event_time_global=f'action_event_time - go_bpod + go_global - {first_trial_bitcode_start}')
+
+        for action_event_type in ['left lick', 'right lick']:
+            action_event_time_global_from_bpod = (q_action_global_from_bpod & {'action_event_type': action_event_type}).fetch('action_event_time_global')
+            
+            behavioral_event.create_timeseries(
+                name=action_event_type.replace(' ', '_'),
+                unit='a.u.', conversion=1.0,
+                data=np.full_like(action_event_time_global_from_bpod.astype(float), 1),
+                timestamps=action_event_time_global_from_bpod.astype(float),
+                description='time (second) relative to the first trial start (aligned with ephys)')
+    
+    
 
     # # ---- photostim events ----
 
@@ -504,14 +534,20 @@ def export_recording(session_keys, output_dir='./', overwrite=False):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     for session_key in session_keys:
-        nwbfile = datajoint_to_nwb(session_key)
+        
         # Write to .nwb
-        save_file_name = ''.join([nwbfile.identifier, '.nwb'])
+        water_res_num, sess_datetime = get_wr_sessdatetime(session_key)
+        session_identifier = f'{water_res_num}_{sess_datetime}_s{session_key["session"]}'
+        save_file_name = ''.join([session_identifier, '.nwb'])
         output_fp = (output_dir / save_file_name).absolute()
+        
         if overwrite or not output_fp.exists():
+            nwbfile = datajoint_to_nwb(session_key)
             with NWBHDF5IO(output_fp.as_posix(), mode='w') as io:
                 io.write(nwbfile)
                 print(f'\tWrite NWB 2.0 file: {save_file_name}')
+        else:
+            print(f'skip {save_file_name}')
                 
 
 ##### WORKAROUND FOR NWB IO BUG #############               
