@@ -836,6 +836,44 @@ class UnitLevelForagingEphysReport(dj.Computed):
  
         plt.close('all')
         self.insert1({**key, **fig_dict})
+        
+        
+qc_criteria = {
+    'before': 'presence_ratio > 0.9 '
+              'AND amplitude_cutoff < 0.1 '
+              'AND isi_violation < 0.5 '
+              'AND unit_amp > 70',
+    'minimal': 'unit_amp > 70 '
+               'AND avg_firing_rate > 0.1 '
+               'AND presence_ratio > 0.9 '
+               'AND isi_violation < 0.1 '
+               'AND amplitude_cutoff < 0.15',
+    'Medulla': 'unit_amp > 150 '
+               'AND avg_firing_rate > 0.2 '
+               'AND presence_ratio > 0.9 '
+               'AND isi_violation < 10 '
+               'AND amplitude_cutoff < 0.15',
+    'ALM': 'unit_amp > 100 '
+           'AND avg_firing_rate > 0.2 '
+           'AND presence_ratio > 0.95 '
+           'AND isi_violation < 0.1 '
+           'AND amplitude_cutoff < 0.1',
+    'Midbrain': 'unit_amp > 100 '
+                'AND avg_firing_rate > 0.1 '
+                'AND presence_ratio > 0.9 '
+                'AND isi_violation < 1 '
+                'AND amplitude_cutoff < 0.08',
+    'Thalamus': 'unit_amp > 90 '
+                'AND avg_firing_rate > 0.1 '
+                'AND presence_ratio > 0.9 '
+                'AND isi_violation < 0.05 '
+                'AND amplitude_cutoff < 0.08',
+    'Striatum': 'unit_amp > 70 '
+                'AND avg_firing_rate > 0.1 '
+                'AND presence_ratio > 0.9 '
+                'AND isi_violation < 0.5 '
+                'AND amplitude_cutoff < 0.1'
+}
 
 @schema
 class UnitLevelForagingEphysReportAllInOne(dj.Computed):
@@ -847,22 +885,23 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
     
     foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol = 100') * lab.WaterRestriction  # Two-lickport foraging
     all_unit_qc = ((ephys.Unit * ephys.ClusterMetric * ephys.UnitStat) & foraging_sessions 
-                   & 'presence_ratio > 0.9' & 'amplitude_cutoff < 0.1' & 'isi_violation < 0.5' & 'unit_amp > 70')
+                   & qc_criteria['minimal'])
     
-    t_significant_trial = (ephys.Unit & ((psth_foraging.UnitPeriodLinearFit * 
-                                   psth_foraging.UnitPeriodLinearFit.Param
-                                   & 'period in ("go_to_end")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' 
-                                   & 'var_name = "relative_action_value_ic"' 
-                                   & 'ABS(t) > 2'))).proj()
+#     t_significant_trial = (ephys.Unit & ((psth_foraging.UnitPeriodLinearFit * 
+#                                    psth_foraging.UnitPeriodLinearFit.Param
+#                                    & 'period in ("go_to_end")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' 
+#                                    & 'var_name = "relative_action_value_ic"' 
+#                                    & 'ABS(t) > 2'))).proj()
     
-    t_significant_iti = (ephys.Unit & ((psth_foraging.UnitPeriodLinearFit * 
-                                   psth_foraging.UnitPeriodLinearFit.Param
-                                   & 'period in ("iti_all")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' 
-                                   & 'var_name = "relative_action_value_ic"' 
-                                   & 'ABS(t) > 2'))).proj()   
+#     t_significant_iti = (ephys.Unit & ((psth_foraging.UnitPeriodLinearFit * 
+#                                    psth_foraging.UnitPeriodLinearFit.Param
+#                                    & 'period in ("iti_all")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' 
+#                                    & 'var_name = "relative_action_value_ic"' 
+#                                    & 'ABS(t) > 2'))).proj()   
     
-    t_sign = t_significant_iti + t_significant_iti
-    key_source = t_sign & (ephys.Unit & foraging_model.FittedSessionModel & all_unit_qc.proj()).proj()
+    # t_sign = t_significant_iti + t_significant_iti
+    # key_source = t_sign & (ephys.Unit & foraging_model.FittedSessionModel & all_unit_qc.proj()).proj()
+    key_source = (ephys.Unit & psth_foraging.UnitPeriodLinearFit & all_unit_qc.proj() & histology.ElectrodeCCFPosition.ElectrodePosition).proj()
 
     def make(self, key):
         # if not ephys.check_unit_criteria(key):
