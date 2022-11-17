@@ -482,7 +482,7 @@ def plot_unit_all_in_one(key):
     date_str = (experiment.Session & key).fetch1("session_date").strftime("%Y%m%d")
     imec_str = f'imec{insertion_num - 1}'
 
-    alignment_fs = glob.glob(path_alignment + f'{h2o}*{date_str}*{imec_str}' + (f'shank{shank}' if if_MS else '') + '*overview.png')
+    alignment_fs = glob.glob(path_alignment + f'{h2o}*{date_str}*{imec_str}*' + (f'shank{shank}' if if_MS else '') + '*overview.png')
 
     if len(alignment_fs):
         im_align = plt.imread(alignment_fs[0])

@@ -507,7 +507,7 @@ def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'inse
         # plt.subplots_adjust(right=0.8, hspace=0.2)
 
         # Period firing rate
-        trial_with_nan = np.arange(np.min(trial), np.max(trial + 1))
+        trial_with_nan = np.arange(1, np.max(trial + 1))
         firing_with_nan = np.empty(trial_with_nan.shape)
         firing_with_nan[:] = np.nan
         firing_with_nan[trial - 1] = firing
