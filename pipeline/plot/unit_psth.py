@@ -272,13 +272,18 @@ def plot_unit_psth_choice_outcome(unit_key={'subject_id': 473361, 'session': 47,
         axs = fig.subplots(1 + if_raster, len(align_types), sharey='row', sharex='col')
         axs = np.atleast_2d(axs).reshape((1+if_raster, -1))
         plt.subplots_adjust(top=0.8)  
-
+        
+        try:
+            region_name = (((ephys.Unit & unit_key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")
+        except:
+            region_name = 'unknown area'
+            
         # Add unit info
         unit_info = (f'{(lab.WaterRestriction & unit_key).fetch1("water_restriction_number")}, '
                     f'{(experiment.Session & unit_key).fetch1("session_date")}, '
                     f'imec {unit_key["insertion_number"]-1}\n'
                     f'Unit #: {unit_key["unit"]}, '
-                    f'{(((ephys.Unit & unit_key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")}'
+                    f'{region_name}'
                     )
         fig.text(0.1, 0.9, unit_info)              
 
@@ -349,7 +354,8 @@ def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'ses
                                             model_id=14, n_quantile=5,
                                             align_types=['trial_start', 'go_cue', 'first_lick_after_go_cue', 'iti_start', 'next_trial_start'],
                                             latent_variable='contra_action_value',
-                                            axs=None, title=''):
+                                            axs=None, title='',
+                                            if_sem=True):
     """
     (for foraging task) Plot psth grouped by quantiles of latent variable from behavioral model fitting
 
@@ -388,11 +394,17 @@ def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'ses
         plt.subplots_adjust(top=0.8)
             # Add unit and model info
         latent_var_desc = (psth_foraging.IndependentVariable & {'var_name': latent_variable}).fetch1('desc')
+        
+        try:
+            region_name = (((ephys.Unit & unit_key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")
+        except:
+            region_name = 'unknown area'
+            
         unit_info = (f'{(lab.WaterRestriction & unit_key).fetch1("water_restriction_number")}, '
                     f'Session {(experiment.Session & unit_key).fetch1("session")}, {(experiment.Session & unit_key).fetch1("session_date")}, '
                     f'imec {unit_key["insertion_number"]-1}\n'
                     f'Unit #{unit_key["unit"]}, '
-                    f'{(((ephys.Unit & unit_key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")}\n'
+                    f'{region_name}\n'
                     f'=== Grouped by: {latent_var_desc} ==='
                     )
         id, model_notation, desc, accuracy, n = (foraging_model.FittedSessionModel * foraging_model.Model.proj(..., '-n_params') & unit_key & {'model_id': model_id}).fetch1(
@@ -430,7 +442,7 @@ def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'ses
                                                          trial_keys=experiment.BehaviorTrial & unit_key & df,  # From all trials
                                                          )
 
-        _plot_psths(psths, kargs, ax=ax_psth, xlim=xlim, vlines=period_starts_all)
+        _plot_psths(psths, kargs, ax=ax_psth, xlim=xlim, vlines=period_starts_all, if_sem=if_sem)
         if if_titles:
             ax_psth.set(title=f'{align_type}')
 
@@ -456,6 +468,9 @@ def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'inse
     @return: two figures if no axs are provided
     """
 
+    if not isinstance(period, list):
+        period = [period]
+    
     # -- Get latent variables --
     if model_id is None:
         model_id = (foraging_model.FittedSessionModelComparison.BestModel & unit_key & 'model_comparison_idx=0').fetch1('best_aic')
@@ -477,7 +492,7 @@ def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'inse
 
     # 2. Period activity
     for pp in period:
-       
+        
         #  period_activity = psth_foraging.compute_unit_period_activity(unit_key, pp)
         period_activity = (psth_foraging.UnitPeriodActivity & unit_key & {'period': pp}
                            ).fetch('trial', 'firing_rates', as_dict=True)[0]
@@ -492,7 +507,7 @@ def plot_unit_period_tuning(unit_key={'subject_id': 473361, 'session': 47, 'inse
         # plt.subplots_adjust(right=0.8, hspace=0.2)
 
         # Period firing rate
-        trial_with_nan = np.arange(np.min(trial), np.max(trial + 1))
+        trial_with_nan = np.arange(1, np.max(trial + 1))
         firing_with_nan = np.empty(trial_with_nan.shape)
         firing_with_nan[:] = np.nan
         firing_with_nan[trial - 1] = firing

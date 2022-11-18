@@ -132,9 +132,9 @@ class HistologyIngest(dj.Imported):
 
         # ingest histology
         prb_ingested, trk_ingested = False, False
-
+   
         try:
-            prb_ingested = self._load_histology_ccf()
+            prb_ingested, found_ccf = self._load_histology_ccf()
         except FileNotFoundError as e:
             log.warning('Error: {}'.format(str(e)))
         except HistologyFileError as e:
@@ -145,7 +145,7 @@ class HistologyIngest(dj.Imported):
             return
 
         try:
-            trk_ingested = self._load_histology_track()
+            trk_ingested, found_track = self._load_histology_track()
         except FileNotFoundError as e:
             log.warning('Error: {}'.format(str(e)))
             log.warning('Error: No histology with probe track. Skipping...')
@@ -157,6 +157,13 @@ class HistologyIngest(dj.Imported):
             return
 
         self.insert1(key)
+        
+        if found_ccf['format'] == 1:
+            self.HistologyFile.insert1({**key, 'histology_file': str(found_ccf['histology_files'][0])})
+            self.LandmarkFile.insert1({**key, 'landmark_file': str(found_track['histology_files'][0])})
+        elif found_ccf['format'] == 2:
+            self.HistologyFile.insert1({**key, 'histology_file': str(found_ccf['channel_locations_files'][0])})
+            self.LandmarkFile.insert1({**key, 'landmark_file': str(found_track['xyz_picks_files'][0])})
 
     def _load_histology_ccf(self):
 
@@ -327,7 +334,7 @@ class HistologyIngest(dj.Imported):
                             repr(e)))
                         histology.ElectrodeCCFPosition.ElectrodePositionError.insert1(rec)
 
-        return True
+        return True, found
 
     def _load_histology_track(self):
 
@@ -421,7 +428,7 @@ class HistologyIngest(dj.Imported):
                      enumerate(shank_xyz)),
                     ignore_extra_fields=True, allow_direct_insert=True)
 
-        return True
+        return True, found
 
     def _search_histology_files(self, file_type):
         """
@@ -536,7 +543,7 @@ class HistologyIngest(dj.Imported):
         elif format_number == 2:
             log.debug('format 2 detected..')
 
-            xyz_picks_files = list(self.directory.glob('xyz_picks*.json'))
+            xyz_picks_files = list(self.directory.glob('*xyz_picks*.json'))
 
             if len(channel_locations_files) == 1:
                 corresponding_shanks = [1]

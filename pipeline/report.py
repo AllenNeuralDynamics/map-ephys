@@ -836,6 +836,76 @@ class UnitLevelForagingEphysReport(dj.Computed):
  
         plt.close('all')
         self.insert1({**key, **fig_dict})
+        
+        
+qc_criteria = {
+    'before': 'presence_ratio > 0.9 '
+              'AND amplitude_cutoff < 0.1 '
+              'AND isi_violation < 0.5 '
+              'AND unit_amp > 70',
+    'minimal': 'unit_amp > 70 '
+               'AND avg_firing_rate > 0.1 '
+               'AND presence_ratio > 0.9 '
+               'AND isi_violation < 0.1 '
+               'AND amplitude_cutoff < 0.15',
+    'Medulla': 'unit_amp > 150 '
+               'AND avg_firing_rate > 0.2 '
+               'AND presence_ratio > 0.9 '
+               'AND isi_violation < 10 '
+               'AND amplitude_cutoff < 0.15',
+    'ALM': 'unit_amp > 100 '
+           'AND avg_firing_rate > 0.2 '
+           'AND presence_ratio > 0.95 '
+           'AND isi_violation < 0.1 '
+           'AND amplitude_cutoff < 0.1',
+    'Midbrain': 'unit_amp > 100 '
+                'AND avg_firing_rate > 0.1 '
+                'AND presence_ratio > 0.9 '
+                'AND isi_violation < 1 '
+                'AND amplitude_cutoff < 0.08',
+    'Thalamus': 'unit_amp > 90 '
+                'AND avg_firing_rate > 0.1 '
+                'AND presence_ratio > 0.9 '
+                'AND isi_violation < 0.05 '
+                'AND amplitude_cutoff < 0.08',
+    'Striatum': 'unit_amp > 70 '
+                'AND avg_firing_rate > 0.1 '
+                'AND presence_ratio > 0.9 '
+                'AND isi_violation < 0.5 '
+                'AND amplitude_cutoff < 0.1'
+}
+
+region_ann_lut = {
+    # premotor
+    'ALM': ["Secondary motor area%"],
+    
+    # isocortex, PFC
+    'PL': ["Prelimbic%"],
+    'ACA': ["Anterior cingulate area%"],
+    'ILA': ["Infralimbic%"],
+    'ORB': ['%orbital%'],
+    # 'FRP': '%frontal%',
+    'RSP': ["Retrosplenial area%"],
+    
+    # thalamus
+    'VM': ['Ventral medial%'],
+    'MD': ['Mediodorsal%'],
+    'VPM': ['Ventral posteromedial%'],
+    'HY': ['Hypothalamus', 'Zona %'],
+    
+    # striatum
+    'LSN': ["Lateral septal nucleus%"],
+    'STRd': ["Caudoputamen%"],
+    'STRv': ["Nucleus accumbens%", "Fundus%"],
+    'striatum': ["striatum%"],
+    
+    # Pallidum
+    'PALv': ["Substantia innominata%", "Magnocellular%"],
+    
+    # Olfactory
+    'OLF': ["%olfactory%"],
+}
+
 
 @schema
 class UnitLevelForagingEphysReportAllInOne(dj.Computed):
@@ -845,24 +915,33 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
     unit_foraging_all_in_one: filepath@report_store  # all in one figure (Jeremiah)
     """
     
+
     foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol = 100') * lab.WaterRestriction  # Two-lickport foraging
     all_unit_qc = ((ephys.Unit * ephys.ClusterMetric * ephys.UnitStat) & foraging_sessions 
-                   & 'presence_ratio > 0.9' & 'amplitude_cutoff < 0.1' & 'isi_violation < 0.5' & 'unit_amp > 70')
-    
-    t_significant_trial = (ephys.Unit & ((psth_foraging.UnitPeriodLinearFit * 
-                                   psth_foraging.UnitPeriodLinearFit.Param
-                                   & 'period in ("go_to_end")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' 
-                                   & 'var_name = "relative_action_value_ic"' 
-                                   & 'ABS(t) > 2'))).proj()
-    
-    t_significant_iti = (ephys.Unit & ((psth_foraging.UnitPeriodLinearFit * 
-                                   psth_foraging.UnitPeriodLinearFit.Param
-                                   & 'period in ("iti_all")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' 
-                                   & 'var_name = "relative_action_value_ic"' 
-                                   & 'ABS(t) > 2'))).proj()   
-    
-    t_sign = t_significant_iti + t_significant_iti
-    key_source = t_sign & (ephys.Unit & foraging_model.FittedSessionModel & all_unit_qc.proj()).proj()
+                   & qc_criteria['minimal'])
+
+    #     t_significant_trial = (ephys.Unit & ((psth_foraging.UnitPeriodLinearFit * 
+    #                                    psth_foraging.UnitPeriodLinearFit.Param
+    #                                    & 'period in ("go_to_end")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' 
+    #                                    & 'var_name = "relative_action_value_ic"' 
+    #                                    & 'ABS(t) > 2'))).proj()
+
+    #     t_significant_iti = (ephys.Unit & ((psth_foraging.UnitPeriodLinearFit * 
+    #                                    psth_foraging.UnitPeriodLinearFit.Param
+    #                                    & 'period in ("iti_all")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' 
+    #                                    & 'var_name = "relative_action_value_ic"' 
+    #                                    & 'ABS(t) > 2'))).proj()   
+
+    #     t_sign = t_significant_iti + t_significant_iti
+    unit_linear_fitting_sign = ephys.Unit & (psth_foraging.UnitPeriodLinearFit & 'model_p < 0.01')
+
+    session_qc = 'trial_number > 300 AND foraging_efficiency > 0.70'  # An arbitrary QC for trial number and performance
+    foraging_sess_qc = ((foraging_analysis.SessionStats.proj(trial_number='session_pure_choices_num', 
+                                                             foraging_efficiency='session_foraging_eff_optimal_random_seed') 
+                                 & session_qc))
+
+    # key_source = t_sign & (ephys.Unit & foraging_model.FittedSessionModel & all_unit_qc.proj()).proj()
+    key_source = (ephys.Unit & all_unit_qc.proj() & unit_linear_fitting_sign.proj() & histology.ElectrodeCCFPosition.ElectrodePosition & foraging_sess_qc).proj()
 
     def make(self, key):
         # if not ephys.check_unit_criteria(key):
@@ -873,14 +952,27 @@ class UnitLevelForagingEphysReportAllInOne(dj.Computed):
         #%%
         
         # ---- Save fig and insert ----
+        region_found = ''
         try:
             area_annotation = (((ephys.Unit & key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")
+            
+            for region, areas in region_ann_lut.items():
+                q_string = ' OR '.join([f'annotation LIKE "{s}"' for s in areas])
+                if len(ephys.Unit * histology.ElectrodeCCFPosition.ElectrodePosition * ccf.CCFAnnotation & key & q_string):
+                    region_found = region
+                    break                
         except:
             area_annotation = 'nan'
 
         water_res_num, sess_date = get_wr_sessdatetime(key)
-        units_dir = store_stage / 'all_units'
-        units_dir.mkdir(parents=True, exist_ok=True)
+        
+        if region_found == '':
+            units_dir = store_stage / 'all_units'
+            units_dir.mkdir(parents=True, exist_ok=True)
+        else:  # Put in specific folder for this region
+            units_dir = store_stage / 'all_units' / region_found
+            units_dir.mkdir(parents=True, exist_ok=True)            
+            
         
         ts = ((psth_foraging.UnitPeriodLinearFit * psth_foraging.UnitPeriodLinearFit.Param) & key
                  & 'period in ("iti_all", "go_to_end")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' & 'var_name = "relative_action_value_ic"'

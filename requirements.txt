@@ -15,8 +15,15 @@ openpyxl
 statsmodels# oralfacial_analysis.GLMFit error
 astropy
 statannot
-h5py
+streamlit
+streamlit-aggrid
+watchdog
+h5py==3.3.0
 pynwb==2.0.1
 streamlit
 streamlit-aggrid
 watchdog
+spikeinterface
+nwb-conversion-tools
+opencv-python
+dspca
