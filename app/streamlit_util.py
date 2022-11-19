@@ -37,12 +37,12 @@ def aggrid_interactive_table_session(df: pd.DataFrame):
     )
 
     options.configure_side_bar()
-    options.configure_selection("single")
+    options.configure_selection(selection_mode="multiple")# , use_checkbox=True, header_checkbox=True)
     options.configure_column(field="session", sort="asc")
-    options.configure_column(field="water_restriction_number", hide=True, rowGroup=True)
+    options.configure_column(field="h2o", hide=True, rowGroup=True)
     options.configure_column(field='subject_id', hide=True)
     options.configure_column(field="session_date", type=["customDateTimeFormat"], custom_format_string='yyyy-MM-dd')
-    options.configure_column(field="ephys_insertions", dateType="DateType")
+    options.configure_column(field="ephys_ins", dateType="DateType")
     
     # options.configure_column(field="water_restriction_number", header_name="subject", 
     #                          children=[dict(field="water_restriction_number", rowGroup=True),
@@ -53,7 +53,7 @@ def aggrid_interactive_table_session(df: pd.DataFrame):
         enable_enterprise_modules=True,
         gridOptions=options.build(),
         theme="balham",
-        update_mode=GridUpdateMode.MODEL_CHANGED,
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
         allow_unsafe_jscode=True,
         height=500,
         columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS,
@@ -87,9 +87,9 @@ def aggrid_interactive_table_units(df: pd.DataFrame):
         enable_enterprise_modules=True,
         gridOptions=options.build(),
         theme="balham",
-        update_mode=GridUpdateMode.MODEL_CHANGED,
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
         allow_unsafe_jscode=True,
-        height=1000,
+        height=500,
         columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS,
         custom_css=custom_css,
     )

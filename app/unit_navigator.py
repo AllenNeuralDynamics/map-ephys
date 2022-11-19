@@ -2,98 +2,54 @@
 import pandas as pd
 import streamlit as st
 from pathlib import Path
+import glob
 import matplotlib.pyplot as plt
 import numpy as np
+from datetime import datetime
+
 import mpld3
 import streamlit.components.v1 as components
 
 from streamlit_util import *
 # from pipeline import experiment, ephys, lab, psth_foraging, report, foraging_analysis
-from pipeline.plot import foraging_model_plot
+# from pipeline.plot import foraging_model_plot
 
-cache_folder = './app/'
+cache_folder = '/Users/han.hou/s3-drive/st_cache/'
+cache_fig_folder = '/Users/han.hou/Library/CloudStorage/OneDrive-AllenInstitute/pipeline_report/report/all_units/'  # '/Users/han.hou/s3-drive/all_units/'
 
 st.set_page_config(layout="wide", page_title='Foraging unit navigator')
 
-always_refetch = st.checkbox('Always refetch', value=False)
+# always_refetch = st.checkbox('Always refetch', value=False)
 ephys_only = st.checkbox('Ephys only', value=True)
 
 
+@st.experimental_memo
+def get_fig_unit_all_in_one(row):
+    key = row[0]
+    sess_date_str = datetime.strftime(datetime.strptime(key['session_date'], '%Y-%m-%dT%H:%M:%S'), '%Y%m%d')
+    
+    fn = f'*{key["h2o"]}_{sess_date_str}_{key["ins"]}*u{key["unit"]:03}*'
 
-#%%
-def fetch_ephys_units():
-    # df = pd.DataFrame(all_unit_qc.fetch())
-    from pipeline import experiment, ephys, lab, psth_foraging, report, foraging_analysis
-    
-    t_iti_delta_Q = (psth_foraging.UnitPeriodLinearFit.Param & 'period in ("iti_all")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' 
-    & 'var_name = "relative_action_value_ic"').proj(t_iti_delta_Q='t', t_abs_iti_delta_Q='ABS(t)')
-    
-    t_trial_delta_Q = (psth_foraging.UnitPeriodLinearFit.Param & 'period in ("go_to_end")' & 'multi_linear_model = "Q_rel + Q_tot + rpe"' 
-    & 'var_name = "relative_action_value_ic"').proj(t_go_to_end_delta_Q='t', t_abs_go_to_end_delta_Q='ABS(t)', _='period')
-    
-    df_all_unit = pd.DataFrame((
-                report.UnitLevelForagingEphysReportAllInOne.key_source * ephys.Unit.proj('unit_uid', 'unit_amp', 'unit_snr')
-                * ephys.ClusterMetric.proj('presence_ratio', 'amplitude_cutoff')
-                * ephys.UnitStat
-                * t_iti_delta_Q * t_trial_delta_Q
-                ).fetch())
-    
-    df_all_unit.to_pickle(cache_folder + 'ephys_units.pkl')
-    
-    return df_all_unit
+    file = glob.glob(cache_fig_folder + '**/' + fn, recursive=True)[0]
+            
+    return file
 
-def fetch_sessions():
-    # with st.spinner(f'Connect to datajoint...'):
-    from pipeline import experiment, ephys, lab, psth_foraging, report, foraging_analysis, histology
-    import datajoint as dj; dj.conn().connect()
-    
-    # with st.spinner(f'Fetching...'):
-    foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol=100').proj()
-    insertion_numbers = foraging_sessions.aggr(foraging_sessions * ephys.ProbeInsertion, ..., 
-                                                    #   keep_all_rows=True, ephys_insertions='IF(COUNT(insertion_number), "yes", "no")')
-                                                keep_all_rows=True, ephys_insertions='COUNT(insertion_number)')
-    if_histology = foraging_sessions.aggr(foraging_sessions * histology.ElectrodeCCFPosition.ElectrodePosition, ...,
-                                          keep_all_rows=True, if_histology='IF(COUNT(ccf_x)>0, "yes", "no")')
-    if_photostim_from_behav = foraging_sessions.aggr(foraging_sessions * experiment.PhotostimForagingTrial, ...,
-                                          keep_all_rows=True, if_photostim_from_behav='IF(COUNT(trial)>0, "yes", "no")')
-    if_photostim_from_ephys = foraging_sessions.aggr(foraging_sessions * (ephys.TrialEvent & 'trial_event_type LIKE "laser%"'), ...,
-                                          keep_all_rows=True, if_photostim_from_ephys='IF(COUNT(trial)>0, "yes", "no")')
+# table_mapping = {
+#     'sessions': fetch_sessions,
+#     'ephys_units': fetch_ephys_units,
+# }
 
-    df_sessions = pd.DataFrame(((experiment.Session & foraging_sessions)
-                                * lab.WaterRestriction.proj('water_restriction_number')
-                                * insertion_numbers
-                                * if_histology
-                                * if_photostim_from_behav
-                                * if_photostim_from_ephys)
-                               .proj(..., '-rig', '-username', '-session_time')
-                               .fetch()
-                                )
-    # df_sessions['session_date'] = pd.to_datetime(df_sessions['session_date'], format="%Y-%m-%d")
-    df_sessions.to_pickle(cache_folder + 'sessions.pkl')
-    
-    return df_sessions
-
-
-def get_fig_unit_all_in_one():
-    
-    return fig
-
-table_mapping = {
-    'sessions': fetch_sessions,
-    'ephys_units': fetch_ephys_units,
-}
-
-# @st.experimental_memo
+@st.experimental_memo
 def load_data(tables=['sessions']):
     df = {}
     for table in tables:
         # with st.spinner(f'Load {table}...'):
-            if not always_refetch and Path(cache_folder + f'{table}.pkl').exists():
-                f'Table {table} read from cache'
-                df[table] = pd.read_pickle(cache_folder + f'{table}.pkl')
-            else:
-                f'Table {table} fetched'
-                df[table] = table_mapping[table]()
+            # if not always_refetch and Path(cache_folder + f'{table}.pkl').exists():
+            # f'Table {table} read from cache'
+        df[table] = pd.read_pickle(cache_folder + f'{table}.pkl')
+            # else:
+            #     f'Table {table} fetched'
+            #     df[table] = table_mapping[table]()
     return df
     
 
@@ -110,13 +66,10 @@ def get_fig(key):
 
 
 
-
-
-
 col1, col2 = st.columns([1, 2], gap='small')
 with col1:
     if ephys_only:
-        selection = aggrid_interactive_table_session(df=df['sessions'].query('ephys_insertions > 0'))
+        selection = aggrid_interactive_table_session(df=df['sessions'].query('ephys_ins > 0'))
     else:
         selection = aggrid_interactive_table_session(df=df['sessions'])
         # selection_units = aggrid_interactive_table(df=df['ephys_units'])
@@ -134,6 +87,11 @@ with col2:
 col3, col4 = st.columns([1, 3], gap='small')
 with col3:
     selection_units = aggrid_interactive_table_units(df=df['ephys_units'])
-    st.write(selection_units)
     
+with col4:
+    if selection_units['selected_rows']:
+        unit_fig = get_fig_unit_all_in_one(selection_units['selected_rows'])
+        
+        st.image(unit_fig, output_format='PNG', width=3000)
+        
 # %%
