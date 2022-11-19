@@ -3,11 +3,13 @@ import pandas as pd
 import streamlit as st
 from pathlib import Path
 import matplotlib.pyplot as plt
+import numpy as np
+import mpld3
+import streamlit.components.v1 as components
 
-from streamlit_util import aggrid_interactive_table
-from pipeline import experiment, ephys, lab, psth_foraging, report, foraging_analysis
+from streamlit_util import *
+# from pipeline import experiment, ephys, lab, psth_foraging, report, foraging_analysis
 from pipeline.plot import foraging_model_plot
-import datajoint as dj; dj.conn().connect()
 
 cache_folder = './app/'
 
@@ -15,6 +17,8 @@ st.set_page_config(layout="wide", page_title='Foraging unit navigator')
 
 always_refetch = st.checkbox('Always refetch', value=False)
 ephys_only = st.checkbox('Ephys only', value=True)
+
+
 
 #%%
 def fetch_ephys_units():
@@ -34,7 +38,7 @@ def fetch_ephys_units():
                 * t_iti_delta_Q * t_trial_delta_Q
                 ).fetch())
     
-    df_all_unit.to_csv(cache_folder + 'ephys_units.csv', index=False)
+    df_all_unit.to_pickle(cache_folder + 'ephys_units.pkl')
     
     return df_all_unit
 
@@ -65,35 +69,30 @@ def fetch_sessions():
                                .fetch()
                                 )
     # df_sessions['session_date'] = pd.to_datetime(df_sessions['session_date'], format="%Y-%m-%d")
-    df_sessions.to_csv(cache_folder + 'sessions.csv', index=False)
+    df_sessions.to_pickle(cache_folder + 'sessions.pkl')
     
     return df_sessions
 
-# if Path(cache_folder + 'all_unit.csv').exists():
-#     df_all_unit = pd.read_csv(cache_folder + 'all_unit.csv')
-#     df_sessions = pd.read_csv(cache_folder + 'df_sessions.csv')
-# else:
-#     'cached all_unit.csv does not exist'
-#     df_all_unit = fetch_ephys_units()
-#     df_sessions = fetch_sessions()
 
-# h2o = pd.DataFrame(lab.WaterRestriction.proj('water_restriction_number').fetch())
-# df = df.merge(h2o, left_on='subject_id', right_on='subject_id')
+def get_fig_unit_all_in_one():
+    
+    return fig
 
 table_mapping = {
     'sessions': fetch_sessions,
     'ephys_units': fetch_ephys_units,
 }
 
+# @st.experimental_memo
 def load_data(tables=['sessions']):
     df = {}
     for table in tables:
         # with st.spinner(f'Load {table}...'):
-            if not always_refetch and Path(cache_folder + f'{table}.csv').exists():
-                'read from cache'
-                df[table] = pd.read_csv(cache_folder + f'{table}.csv')
+            if not always_refetch and Path(cache_folder + f'{table}.pkl').exists():
+                f'Table {table} read from cache'
+                df[table] = pd.read_pickle(cache_folder + f'{table}.pkl')
             else:
-                'fetched'
+                f'Table {table} fetched'
                 df[table] = table_mapping[table]()
     return df
     
@@ -101,20 +100,40 @@ def load_data(tables=['sessions']):
 df = load_data(['sessions', 'ephys_units'])
 
 
-col1, col2 = st.columns([1, 3], gap='small')
+@st.experimental_memo
+def get_fig(key):
+    fig = plt.figure(figsize=(8, 3), constrained_layout=True)
+    ax = fig.subplots(1,1)
+    
+    foraging_model_plot.plot_session_fitted_choice(key, ax=ax, remove_ignored=False, first_n=2)
+    return fig   
+
+
+
+
+
+
+col1, col2 = st.columns([1, 2], gap='small')
 with col1:
     if ephys_only:
-        selection = aggrid_interactive_table(df=df['sessions'].query('ephys_insertions > 0'))
+        selection = aggrid_interactive_table_session(df=df['sessions'].query('ephys_insertions > 0'))
     else:
-        selection = aggrid_interactive_table(df=df['sessions'])
-    # selection_units = aggrid_interactive_table(df=df['ephys_units'])
+        selection = aggrid_interactive_table_session(df=df['sessions'])
+        # selection_units = aggrid_interactive_table(df=df['ephys_units'])
 
 with col2:
-    if selection:
+    if selection["selected_rows"]:
         # st.write("You selected:")
         # st.json(selection["selected_rows"])
+        fig = get_fig(selection["selected_rows"])
         
-        fig = plt.figure(figsize=(8, 3), constrained_layout=True)
-        ax = fig.subplots(1,1)
-        foraging_model_plot.plot_session_fitted_choice(selection["selected_rows"], ax=ax, remove_ignored=False, first_n=2)
-        st.pyplot(fig)
+        # fig_html = mpld3.fig_to_html(fig)
+        # components.html(fig_html, height=600)
+        st.write(fig)
+        
+col3, col4 = st.columns([1, 3], gap='small')
+with col3:
+    selection_units = aggrid_interactive_table_units(df=df['ephys_units'])
+    st.write(selection_units)
+    
+# %%
