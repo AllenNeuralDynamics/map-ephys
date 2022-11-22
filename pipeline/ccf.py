@@ -188,6 +188,61 @@ class AnnotatedBrainSurface(dj.Manual):
                           vertices=mesh.vertices,
                           faces=mesh.faces - 1),  #  0-base index
                      allow_direct_insert=True)
+        
+        
+@schema
+class AreaOfInterest(dj.Lookup):
+    definition = """
+    area_of_interest: varchar(32)
+    ---
+    full_name: varchar(128)
+    """
+    class CCFBrainRegionIncluded(dj.Part):
+        definition = """
+        -> master
+        id:   int
+        ---
+        -> CCFBrainRegion
+        """
+        
+    region_ann_lut = {
+        # premotor
+        'ALM': ["Secondary motor area%"],
+        
+        # isocortex, PFC
+        'PL': ["Prelimbic%"],
+        'ACA': ["Anterior cingulate area%"],
+        'ILA': ["Infralimbic%"],
+        'ORB': ['%orbital%'],
+        # 'FRP': '%frontal%',
+        'RSP': ["Retrosplenial area%"],
+        
+        # thalamus
+        'VM': ['Ventral medial%'],
+        'MD': ['Mediodorsal%'],
+        'VPM': ['Ventral posteromedial%'],
+        'HY': ['Hypothalamus', 'Zona %'],
+        
+        # striatum
+        'LSN': ["Lateral septal nucleus%"],
+        'STRd': ["Caudoputamen%"],
+        'STRv': ["Nucleus accumbens%", "Fundus%"],
+        'striatum': ["striatum%"],
+        
+        # Pallidum
+        'PALv': ["Substantia innominata%", "Magnocellular%"],
+        
+        # Olfactory
+        'OLF': ["%olfactory%"],
+    }
+        
+    @classmethod
+    def load_area_of_interest(cls):
+        for region, areas in cls.region_ann_lut.items():
+            q_area_string = ' OR '.join([f'region_name LIKE "{s}"' for s in areas])
+            this_ccfs = (CCFBrainRegion() & q_area_string).fetch('KEY') 
+            cls.insert1({'area_of_interest': region, 'full_name': ''})
+            cls.CCFBrainRegionIncluded.insert([{'area_of_interest': region, 'id': id, **key} for id, key in enumerate(this_ccfs)])
 
 
 # ========= HELPER METHODS ======
