@@ -15,7 +15,7 @@ import plotly.express as px
 
 from streamlit_util import *
 # from pipeline import experiment, ephys, lab, psth_foraging, report, foraging_analysis
-from pipeline.plot import foraging_model_plot
+# from pipeline.plot import foraging_model_plot
 
 cache_folder = '/Users/han.hou/s3-drive/st_cache/'
 cache_fig_folder = '/Users/han.hou/Library/CloudStorage/OneDrive-AllenInstitute/pipeline_report/report/all_units/'  # 
@@ -23,13 +23,9 @@ cache_fig_folder = '/Users/han.hou/Library/CloudStorage/OneDrive-AllenInstitute/
 
 st.set_page_config(layout="wide", page_title='Foraging unit navigator')
 
-# always_refetch = st.checkbox('Always refetch', value=False)
-ephys_only = st.checkbox('Ephys only', value=True)
-
 
 @st.experimental_memo
-def get_fig_unit_all_in_one(row):
-    key = row[0]
+def get_fig_unit_all_in_one(key):
     sess_date_str = datetime.strftime(datetime.strptime(key['session_date'], '%Y-%m-%dT%H:%M:%S'), '%Y%m%d')
     
     fn = f'*{key["h2o"]}_{sess_date_str}_{key["ins"]}*u{key["unit"]:03}*'
@@ -96,24 +92,27 @@ def plot_scatter(data, x_name='dQ_iti', y_name='sumQ_iti'):
 
 # ------- Layout starts here -------- #
 
-st.markdown('## Foraging sessions')
-col1, col2 = st.columns([1, 1.5], gap='small')
-with col1:
-    if ephys_only:
-        selection = aggrid_interactive_table_session(df=df['sessions'].query('ephys_ins > 0'))
-    else:
-        selection = aggrid_interactive_table_session(df=df['sessions'])
-        # selection_units = aggrid_interactive_table(df=df['ephys_units'])
+# st.markdown('## Foraging sessions')
+# always_refetch = st.checkbox('Always refetch', value=False)
+# ephys_only = st.checkbox('Ephys only', value=True)
 
-with col2:
-    if selection["selected_rows"]:
-        # st.write("You selected:")
-        # st.json(selection["selected_rows"])
-        fig = get_fig(selection["selected_rows"])
+# col1, col2 = st.columns([1, 1.5], gap='small')
+# with col1:
+#     if ephys_only:
+#         selection = aggrid_interactive_table_session(df=df['sessions'].query('ephys_ins > 0'))
+#     else:
+#         selection = aggrid_interactive_table_session(df=df['sessions'])
+#         # selection_units = aggrid_interactive_table(df=df['ephys_units'])
+
+# with col2:
+#     if selection["selected_rows"]:
+#         # st.write("You selected:")
+#         # st.json(selection["selected_rows"])
+#         fig = get_fig(selection["selected_rows"])
         
-        # fig_html = mpld3.fig_to_html(fig)
-        # components.html(fig_html, height=600)
-        st.write(fig)
+#         # fig_html = mpld3.fig_to_html(fig)
+#         # components.html(fig_html, height=600)
+#         st.write(fig)
         
 
 st.markdown('## Unit browser')
@@ -121,20 +120,28 @@ st.markdown('## Unit browser')
 col3, col4 = st.columns([1, 1.3], gap='small')
 with col3:
     selection_units = aggrid_interactive_table_units(df=df['ephys_units'])
+    print(f'selected: {len(selection_units["selected_rows"])} units')
     
-with col4:
-    if selection_units['selected_rows']:
-        unit_fig = get_fig_unit_all_in_one(selection_units['selected_rows'])
+    # Writes a component similar to st.write()
+    if len(selection_units['data']):
+        fig = plot_scatter(selection_units['data'], x_name='dQ_iti', y_name='sumQ_iti')
+
+        # Select other Plotly events by specifying kwargs
+        selected_points = plotly_events(fig, click_event=True, hover_event=False, select_event=False,
+                                    override_height=800, override_width=800)
+        selected_points    
         
+st.write(f"{len(selection_units['data'])} units filtered")
+        
+with col4:
+    if len(selected_points) == 1:  # Priority to select on scatter plot
+        key = df['ephys_units'].query(f'dQ_iti == {selected_points[0]["x"]} and sumQ_iti == {selected_points[0]["y"]}')
+        if len(key):
+            unit_fig = get_fig_unit_all_in_one(dict(key.iloc[0]))
+            st.image(unit_fig, output_format='PNG', width=3000)
+
+    elif len(selection_units['selected_rows']) == 1:
+        unit_fig = get_fig_unit_all_in_one(selection_units['selected_rows'][0])
         st.image(unit_fig, output_format='PNG', width=3000)
         
 # %%
-
-with col3:
-    # Writes a component similar to st.write()
-    fig = plot_scatter(df['ephys_units'])
-    
-    # Select other Plotly events by specifying kwargs
-    selected_points = plotly_events(fig, click_event=True, hover_event=False, select_event=False,
-                                    override_height=800, override_width=800)
-    selected_points

@@ -2,7 +2,7 @@ from email import header
 import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
-from st_aggrid.shared import GridUpdateMode, ColumnsAutoSizeMode
+from st_aggrid.shared import GridUpdateMode, ColumnsAutoSizeMode, DataReturnMode
 
 custom_css = {
 ".ag-root.ag-unselectable.ag-layout-normal": {"font-size": "10px !important",
@@ -75,6 +75,7 @@ def aggrid_interactive_table_units(df: pd.DataFrame):
         df, enableRowGroup=True, enableValue=True, enablePivot=True,
     )
 
+    options.configure_selection(selection_mode="multiple", use_checkbox=True, header_checkbox=True)
     options.configure_side_bar()
     options.configure_selection("single")
      
@@ -86,8 +87,9 @@ def aggrid_interactive_table_units(df: pd.DataFrame):
         df,
         enable_enterprise_modules=True,
         gridOptions=options.build(),
+        data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
         theme="balham",
-        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        update_mode=GridUpdateMode.SELECTION_CHANGED | GridUpdateMode.FILTERING_CHANGED,
         allow_unsafe_jscode=True,
         height=500,
         columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS,
