@@ -144,24 +144,30 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
         results_to_plot = pd.concat([results.iloc[:first_n], results.iloc[len(results)-last_n:]])
     else:  # only plot specified model_id
         results_to_plot = results = _get_specified_model_fitting_results(sess_key, specified_model_ids)
+
         
     # -- Plot actual choice and reward history --
     with sns.plotting_context("notebook", font_scale=1, rc={'style': 'ticks'}):
         fig, ax = plot_session_lightweight([choice_history, reward_history, p_reward], smooth_factor=smooth_factor, ax=ax)
 
-        # -- Plot fitted choice probability etc. --
-        model_str =  (f'Model comparison: {(foraging_model.ModelComparison & q_model_comparison).fetch1("desc")}'
-                        f'(n = {len(results)})') if specified_model_ids is None else ''
-        # plt.gcf().text(0.05, 0.95, f'{(lab.WaterRestriction & sess_key).fetch1("water_restriction_number")}, '
-        #                             f'session {sess_key["session"]}, {results.n_trials[0]} trials\n' + model_str)
-        
-        for idx, result in results_to_plot.iterrows():
-            trial, right_choice_prob = (foraging_model.FittedSessionModel.TrialLatentVariable
-                                & dict(result) & 'water_port="right"').fetch('trial', 'choice_prob')
-            ax.plot(np.arange(0, n_trials) if remove_ignored else trial, right_choice_prob, linewidth=max(1.5 - 0.3 * idx, 0.2),
-                    label=f'{idx + 1}: <{result.model_id}>'
-                            f'{result.model_notation}\n'
-                            f'({result.fitted_param})')
+        try:
+            # -- Plot fitted choice probability etc. --
+            model_str =  (f'Model comparison: {(foraging_model.ModelComparison & q_model_comparison).fetch1("desc")}'
+                            f'(n = {len(results)})') if specified_model_ids is None else ''
+            # plt.gcf().text(0.05, 0.95, f'{(lab.WaterRestriction & sess_key).fetch1("water_restriction_number")}, '
+            #                             f'session {sess_key["session"]}, {results.n_trials[0]} trials\n' + model_str)
+            
+            for idx, result in results_to_plot.iterrows():
+                trial, right_choice_prob = (foraging_model.FittedSessionModel.TrialLatentVariable
+                                    & dict(result) & 'water_port="right"').fetch('trial', 'choice_prob')
+                ax.plot(np.arange(0, n_trials) if remove_ignored else trial, right_choice_prob, linewidth=max(1.5 - 0.3 * idx, 0.2),
+                        label=f'{idx + 1}: <{result.model_id}>'
+                                f'{result.model_notation}\n'
+                                f'({result.fitted_param})')
+        except:
+            pass
+                
+        #TODO photostim trials
 
         #TODO Plot session starts
         # if len(trial_numbers) > 1:  # More than one sessions
