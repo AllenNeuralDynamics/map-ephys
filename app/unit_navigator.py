@@ -12,6 +12,8 @@ import mpld3
 import streamlit.components.v1 as components
 from streamlit_plotly_events import plotly_events
 import plotly.express as px
+import plotly.graph_objects as go
+
 
 from streamlit_util import *
 # from pipeline import experiment, ephys, lab, psth_foraging, report, foraging_analysis
@@ -22,6 +24,9 @@ cache_fig_folder = '/Users/han.hou/Library/CloudStorage/OneDrive-AllenInstitute/
 # cache_fig_folder = '/Users/han.hou/s3-drive/all_units/'
 
 st.set_page_config(layout="wide", page_title='Foraging unit navigator')
+
+if 'selected_points' not in st.session_state:
+    st.session_state['selected_points'] = []
 
 
 @st.experimental_memo
@@ -65,7 +70,8 @@ def get_fig(key):
     foraging_model_plot.plot_session_fitted_choice(key, ax=ax, remove_ignored=False, first_n=2)
     return fig   
 
-@st.experimental_memo
+
+# @st.experimental_memo
 def plot_scatter(data, x_name='dQ_iti', y_name='sumQ_iti'):
     fig = px.scatter(data, x=x_name, y=y_name, 
                      color='area_of_interest', symbol="area_of_interest",
@@ -88,6 +94,14 @@ def plot_scatter(data, x_name='dQ_iti', y_name='sumQ_iti'):
         scaleratio = 1,
     )
     
+    if len(st.session_state.selected_points):
+        fig.add_trace(go.Scatter(x=[st.session_state.selected_points[0]['x']], 
+                                 y=[st.session_state.selected_points[0]['y']], 
+                            mode = 'markers',
+                            marker_symbol = 'star',
+                            marker_size = 15,
+                            name='selected'))
+        
     return fig
 
 # ------- Layout starts here -------- #
@@ -120,7 +134,7 @@ st.markdown('## Unit browser')
 col3, col4 = st.columns([1, 1.3], gap='small')
 with col3:
     selection_units = aggrid_interactive_table_units(df=df['ephys_units'])
-    print(f'selected: {len(selection_units["selected_rows"])} units')
+    st.write(f"{len(selection_units['data'])} units filtered")
     
     # Writes a component similar to st.write()
     if len(selection_units['data']):
@@ -129,13 +143,10 @@ with col3:
         # Select other Plotly events by specifying kwargs
         selected_points = plotly_events(fig, click_event=True, hover_event=False, select_event=False,
                                     override_height=800, override_width=800)
-        selected_points    
-        
-st.write(f"{len(selection_units['data'])} units filtered")
-        
+                
 with col4:
-    if len(selected_points) == 1:  # Priority to select on scatter plot
-        key = df['ephys_units'].query(f'dQ_iti == {selected_points[0]["x"]} and sumQ_iti == {selected_points[0]["y"]}')
+    if len(st.session_state.selected_points) == 1:  # Priority to select on scatter plot
+        key = df['ephys_units'].query(f'dQ_iti == {st.session_state.selected_points[0]["x"]} and sumQ_iti == {st.session_state.selected_points[0]["y"]}')
         if len(key):
             unit_fig = get_fig_unit_all_in_one(dict(key.iloc[0]))
             st.image(unit_fig, output_format='PNG', width=3000)
@@ -144,4 +155,7 @@ with col4:
         unit_fig = get_fig_unit_all_in_one(selection_units['selected_rows'][0])
         st.image(unit_fig, output_format='PNG', width=3000)
         
-# %%
+if selected_points and selected_points != st.session_state.selected_points:
+    st.session_state.selected_points = selected_points
+    st.session_state.selected_points
+    st.experimental_rerun()
