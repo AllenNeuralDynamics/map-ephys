@@ -119,3 +119,6 @@ annotation_10.nrrd
 notebook/dave_notebooks/*
 report/*
 **/*.nwb
+
+# data
+data/*

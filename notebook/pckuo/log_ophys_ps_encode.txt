@@ -1,0 +1,25 @@
+Connecting pochen@datajoint.mesoscale-activity-map.org:3306
+signal type G1
+ session 17: (412, 4)
+ session 23: (533, 4)
+ session 27: (738, 4)
+ session 28: (746, 4)
+ session 29: (812, 4)
+signal type R1
+ session 17: (412, 4)
+ session 23: (533, 4)
+ session 27: (738, 4)
+ session 28: (746, 4)
+ session 29: (812, 4)
+signal type G2
+ session 17: (412, 4)
+ session 23: (533, 4)
+ session 27: (738, 4)
+ session 28: (746, 4)
+ session 29: (812, 4)
+signal type R2
+ session 17: (412, 4)
+ session 23: (533, 4)
+ session 27: (738, 4)
+ session 28: (746, 4)
+ session 29: (812, 4)

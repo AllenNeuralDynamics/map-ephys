@@ -1,0 +1,79 @@
+Connecting pochen@datajoint.mesoscale-activity-map.org:3306
+region: ALM
+total number of units in ALM in sess 33: 37
+num of units: 37
+total number of units in ALM in sess 34: 107
+num of units: 107
+total number of units in ALM in sess 36: 197
+num of units: 197
+total number of units in ALM in sess 37: 54
+num of units: 54
+region: PL
+total number of units in PL in sess 49: 76
+num of units: 76
+ mismatch: PL 49, trials_q_not_in_unit: [752]
+total number of units in PL in sess 50: 48
+num of units: 48
+ mismatch: PL 50, trials_q_not_in_unit: [661]
+total number of units in PL in sess 51: 4
+num of units: 4
+total number of units in PL in sess 52: 93
+num of units: 93
+region: ACA
+total number of units in ACA in sess 33: 3
+num of units: 3
+total number of units in ACA in sess 34: 64
+num of units: 64
+total number of units in ACA in sess 36: 136
+num of units: 136
+total number of units in ACA in sess 37: 57
+num of units: 57
+total number of units in ACA in sess 43: 24
+num of units: 24
+ mismatch: ACA 43, trials_q_not_in_unit: [804]
+region: ORB
+total number of units in ORB in sess 46: 154
+num of units: 154
+ mismatch: ORB 46, trials_q_not_in_unit: [308 312 314 315 316 317 318 319 320 321 322 324 326 330 331 333 334 335
+ 337 338 340 347 350]
+total number of units in ORB in sess 47: 80
+num of units: 80
+total number of units in ORB in sess 48: 64
+num of units: 64
+total number of units in ORB in sess 50: 49
+num of units: 49
+region: LSN
+total number of units in LSN in sess 33: 116
+num of units: 116
+total number of units in LSN in sess 34: 184
+num of units: 184
+total number of units in LSN in sess 36: 148
+num of units: 148
+total number of units in LSN in sess 37: 113
+num of units: 113
+total number of units in LSN in sess 42: 138
+num of units: 138
+ mismatch: LSN 42, trials_q_not_in_unit: [1156]
+total number of units in LSN in sess 43: 5
+num of units: 5
+ mismatch: LSN 43, trials_q_not_in_unit: [804]
+region: striatum
+total number of units in striatum in sess 49: 48
+num of units: 48
+ mismatch: striatum 49, trials_q_not_in_unit: [752]
+total number of units in striatum in sess 50: 9
+num of units: 9
+ mismatch: striatum 50, trials_q_not_in_unit: [661]
+total number of units in striatum in sess 51: 5
+num of units: 5
+total number of units in striatum in sess 52: 5
+num of units: 5
+region: MD
+total number of units in MD in sess 57: 24
+num of units: 24
+total number of units in MD in sess 58: 2
+num of units: 2
+total number of units in MD in sess 59: 3
+num of units: 3
+total number of units in MD in sess 60: 51
+num of units: 51

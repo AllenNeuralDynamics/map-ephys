@@ -1,0 +1,39 @@
+Connecting pochen@datajoint.mesoscale-activity-map.org:3306
+region ALM
+ session 33: 586
+ session 34: 379
+ session 36: 450
+ session 37: 321
+region PL
+ session 49: 748
+ session 50: 634
+ session 51: 594
+ session 52: 543
+region ACA
+ session 33: 586
+ session 34: 379
+ session 36: 450
+ session 37: 321
+ session 43: 791
+region ORB
+ session 46: 277
+ session 47: 421
+ session 48: 178
+ session 50: 272
+region LSN
+ session 33: 586
+ session 34: 379
+ session 36: 450
+ session 37: 321
+ session 42: 1142
+ session 43: 791
+region striatum
+ session 49: 748
+ session 50: 634
+ session 51: 594
+ session 52: 543
+region MD
+ session 57: 359
+ session 58: 262
+ session 59: 342
+ session 60: 736

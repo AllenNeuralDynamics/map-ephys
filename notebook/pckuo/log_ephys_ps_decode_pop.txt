@@ -1,0 +1,70 @@
+Connecting pochen@datajoint.mesoscale-activity-map.org:3306
+region ALM
+ sess 33 fr shape (586, 38)
+ session 33: 586
+ sess 34 fr shape (379, 108)
+ session 34: 379
+ sess 36 fr shape (450, 198)
+ session 36: 450
+ sess 37 fr shape (321, 55)
+ session 37: 321
+region PL
+ sess 49 fr shape (748, 77)
+ session 49: 748
+ sess 50 fr shape (634, 49)
+ session 50: 634
+ sess 51 fr shape (594, 5)
+ session 51: 594
+ sess 52 fr shape (543, 94)
+ session 52: 543
+region ACA
+ sess 33 fr shape (586, 4)
+ session 33: 586
+ sess 34 fr shape (379, 65)
+ session 34: 379
+ sess 36 fr shape (450, 137)
+ session 36: 450
+ sess 37 fr shape (321, 58)
+ session 37: 321
+ sess 43 fr shape (791, 25)
+ session 43: 791
+region ORB
+ sess 46 fr shape (277, 155)
+ session 46: 277
+ sess 47 fr shape (421, 81)
+ session 47: 421
+ sess 48 fr shape (178, 65)
+ session 48: 178
+ sess 50 fr shape (272, 50)
+ session 50: 272
+region LSN
+ sess 33 fr shape (586, 117)
+ session 33: 586
+ sess 34 fr shape (379, 185)
+ session 34: 379
+ sess 36 fr shape (450, 149)
+ session 36: 450
+ sess 37 fr shape (321, 114)
+ session 37: 321
+ sess 42 fr shape (1142, 139)
+ session 42: 1142
+ sess 43 fr shape (791, 6)
+ session 43: 791
+region striatum
+ sess 49 fr shape (748, 49)
+ session 49: 748
+ sess 50 fr shape (634, 10)
+ session 50: 634
+ sess 51 fr shape (594, 6)
+ session 51: 594
+ sess 52 fr shape (543, 6)
+ session 52: 543
+region MD
+ sess 57 fr shape (359, 25)
+ session 57: 359
+ sess 58 fr shape (262, 3)
+ session 58: 262
+ sess 59 fr shape (342, 4)
+ session 59: 342
+ sess 60 fr shape (736, 52)
+ session 60: 736
