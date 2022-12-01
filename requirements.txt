@@ -18,12 +18,10 @@ statannot
 streamlit
 streamlit-aggrid
 watchdog
+pynwb==2.2.0
 h5py==3.3.0
-pynwb==2.0.1
-streamlit
-streamlit-aggrid
-watchdog
 spikeinterface
 nwb-conversion-tools
+nwbinspector
 opencv-python
 dspca
