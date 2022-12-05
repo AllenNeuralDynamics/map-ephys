@@ -378,13 +378,13 @@ class SessionLevelForagingLickingPSTH(dj.Computed):
         
     def make(self, key):
         water_res_num, sess_date = get_wr_sessdatetime(key)
-        sess_dir = store_stage / water_res_num / sess_date
+        sess_dir = store_stage / 'all_sessions'
         sess_dir.mkdir(parents=True, exist_ok=True)
 
-        foraging_plot.session_licking_PSTH(key)
+        fig = foraging_plot.session_licking_PSTH(key)
         
         # ---- Save fig and insert ----
-        fn_prefix = f'{water_res_num}_{sess_date}_'
+        fn_prefix = f'{water_res_num}_{sess_date}_{key["session"]}_'
         fig_dict = save_figs((fig,), ('session_foraging_licking_psth',), sess_dir, fn_prefix)
         plt.close('all')
         self.insert1({**key, **fig_dict})
