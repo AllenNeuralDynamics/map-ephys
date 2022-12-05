@@ -844,6 +844,8 @@ def session_licking_PSTH(key):
     ax3.set(xlabel='Time to Go Cue (s)', title='First lick (reaction time)') # Fix the ylim of left and right licks
     ax3.legend()
     
+    return fig
+    
 def plot_lick_psth(sess_key=dict(subject_id=616134, session=17),
                    trial_event_to_align="go", other_trial_events={'laserLoff': ('cyan', '<'), 'laserLon': ('cyan', '<')},
                    use_actual_trial_num=True
