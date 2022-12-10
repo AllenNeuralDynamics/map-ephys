@@ -245,7 +245,7 @@ class AreaOfInterest(dj.Lookup):
             keys, colors = (CCFBrainRegion() & q_area_string).fetch('KEY', 'color_code') 
             
             # Get average color code
-            color_aver = np.array([ImageColor.getcolor(f'#{x}', "RGB") for x in colors]).mean(axis=0)            
+            color_aver = np.array([ImageColor.getcolor(f'#{x}', "RGB") for x in colors]).mean(axis=0).astype(np.uint8)            
             cls.insert1({'area_of_interest': region, 'full_name': fullname, 'rgb': color_aver})
             cls.CCFBrainRegionIncluded.insert([{'area_of_interest': region, 'id': id, **key} for id, key in enumerate(keys)])
 
