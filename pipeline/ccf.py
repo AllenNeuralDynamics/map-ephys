@@ -5,6 +5,7 @@ import pandas as pd
 import datajoint as dj
 import pathlib
 import scipy.io as scio
+from PIL import ImageColor
 
 import nrrd
 
@@ -196,6 +197,7 @@ class AreaOfInterest(dj.Lookup):
     area_of_interest: varchar(32)
     ---
     full_name: varchar(128)
+    rgb:     tinyblob   # RGB color
     """
     class CCFBrainRegionIncluded(dj.Part):
         definition = """
@@ -207,42 +209,45 @@ class AreaOfInterest(dj.Lookup):
         
     region_ann_lut = {
         # premotor
-        'ALM': ["Secondary motor area%"],
+        'ALM': (["Secondary motor area%"],''),
         
         # isocortex, PFC
-        'PL': ["Prelimbic%"],
-        'ACA': ["Anterior cingulate area%"],
-        'ILA': ["Infralimbic%"],
-        'ORB': ['%orbital%'],
+        'PL': (["Prelimbic%"],''),
+        'ACA': (["Anterior cingulate area%"],''),
+        'ILA': (["Infralimbic%"],''),
+        'ORB': (['%orbital%'],''),
         # 'FRP': '%frontal%',
-        'RSP': ["Retrosplenial area%"],
+        'RSP': (["Retrosplenial area%"],''),
         
         # thalamus
-        'VM': ['Ventral medial%'],
-        'MD': ['Mediodorsal%'],
-        'VPM': ['Ventral posteromedial%'],
-        'HY': ['Hypothalamus', 'Zona %'],
+        'VM': (['Ventral medial%'],''),
+        'MD': (['Mediodorsal%'],''),
+        'VPM': (['Ventral posteromedial%'],''),
+        'HY': (['Hypothalamus', 'Zona %'],''),
         
         # striatum
-        'LSN': ["Lateral septal nucleus%"],
-        'STRd': ["Caudoputamen%"],
-        'STRv': ["Nucleus accumbens%", "Fundus%"],
-        'striatum': ["striatum%"],
+        'LSN': (["Lateral septal nucleus%"],''),
+        'STRd': (["Caudoputamen%"],''),
+        'STRv': (["Nucleus accumbens%", "Fundus%"],''),
+        'striatum': (["striatum%"],''),
         
         # Pallidum
-        'PALv': ["Substantia innominata%", "Magnocellular%"],
+        'PALv': (["Substantia innominata%", "Magnocellular%"],''),
         
         # Olfactory
-        'OLF': ["%olfactory%"],
+        'OLF': (["%olfactory%"],''),
     }
         
     @classmethod
     def load_area_of_interest(cls):
-        for region, areas in cls.region_ann_lut.items():
+        for region, (areas, fullname) in cls.region_ann_lut.items():
             q_area_string = ' OR '.join([f'region_name LIKE "{s}"' for s in areas])
-            this_ccfs = (CCFBrainRegion() & q_area_string).fetch('KEY') 
-            cls.insert1({'area_of_interest': region, 'full_name': ''})
-            cls.CCFBrainRegionIncluded.insert([{'area_of_interest': region, 'id': id, **key} for id, key in enumerate(this_ccfs)])
+            keys, colors = (CCFBrainRegion() & q_area_string).fetch('KEY', 'color_code') 
+            
+            # Get average color code
+            color_aver = np.array([ImageColor.getcolor(f'#{x}', "RGB") for x in colors]).mean(axis=0)            
+            cls.insert1({'area_of_interest': region, 'full_name': fullname, 'rgb': color_aver})
+            cls.CCFBrainRegionIncluded.insert([{'area_of_interest': region, 'id': id, **key} for id, key in enumerate(keys)])
 
 
 # ========= HELPER METHODS ======
