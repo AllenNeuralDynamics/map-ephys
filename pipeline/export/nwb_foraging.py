@@ -526,7 +526,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
     return nwbfile
 
 
-def export_recording(session_keys, output_dir='./', overwrite=False):
+def export_recording(session_keys, output_dir='./', overwrite=False, validate=False):
     if not isinstance(session_keys, list):
         session_keys = [session_keys]
 
@@ -548,7 +548,15 @@ def export_recording(session_keys, output_dir='./', overwrite=False):
                 print(f'\tWrite NWB 2.0 file: {save_file_name}')
         else:
             print(f'skip {save_file_name}')
-                
+            
+        if validate:
+            import nwbinspector
+            with NWBHDF5IO(output_fp.as_posix(), mode='r') as io:
+                validation_status = pynwb.validate(io=io)
+            print(validation_status)
+            for inspection_message in nwbinspector.inspect_all(path=output_fp):
+                print(inspection_message)
+
 
 ##### WORKAROUND FOR NWB IO BUG #############               
                 
