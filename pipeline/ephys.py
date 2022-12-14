@@ -6,7 +6,7 @@ from scipy import signal
 from scipy.stats import poisson
 import logging
 
-from . import lab, experiment, ccf
+from . import lab, experiment, ccf, foraging_analysis
 from . import get_schema_name, create_schema_settings
 from pipeline.ingest.utils.paths import get_sess_dir, gen_probe_insert, match_probe_to_ephys
 from pipeline.ingest.utils.spike_sorter_loader import cluster_loader_map
@@ -835,6 +835,34 @@ class UnitPassingCriteria(dj.Computed):
     def make(self, key):
         #insert value returned from check_unit_criteria into criteria_passed
         self.insert1(dict(key, criteria_passed=check_unit_criteria(key)))
+ 
+       
+@schema
+class UnitForagingQC(dj.Computed):
+    definition = """
+    -> Unit
+    ---
+    unit_minimal: bool
+    unit_minimal_session_qc: bool
+    """
+
+    key_source = foraging_analysis.SessionTaskProtocol & 'session_task_protocol = 100' & ProbeInsertion   # Make at the level of each session
+    session_qc = 'trial_number > 300 AND foraging_efficiency > 0.7'  # An arbitrary QC for trial number and performance
+
+    def make(self, sess_key):
+        
+        q_unit = Unit & sess_key
+        q_unit_minimal = q_unit * ClusterMetric * UnitStat & brain_area_unit_restrictions['minimal']
+        q_all = q_unit.proj().aggr(q_unit_minimal.proj(passed='1'), keep_all_rows=True, unit_minimal="COUNT(passed)")
+    
+        q_session_qc = (q_unit_minimal & (foraging_analysis.SessionStats.proj(trial_number='session_pure_choices_num', 
+                                                                      foraging_efficiency='session_foraging_eff_optimal_random_seed') 
+                                  & UnitForagingQC.session_qc))
+        q_all *= q_all.aggr(q_session_qc.proj(passed='1'), keep_all_rows=True, unit_minimal_session_qc='COUNT(passed)')
+                                        
+        #insert value returned from check_unit_criteria into criteria_passed
+        self.insert(q_all.fetch())
+   
 
         
 # ---- Unit restriction criteria based on brain regions ----
@@ -865,7 +893,12 @@ brain_area_unit_restrictions = {
                 'AND avg_firing_rate > 0.1 '
                 'AND presence_ratio > 0.9 '
                 'AND isi_violation < 0.5 '
-                'AND amplitude_cutoff < 0.1'
+                'AND amplitude_cutoff < 0.1',
+    'minimal': 'unit_amp > 70 '
+               'AND avg_firing_rate > 0.1 '
+               'AND presence_ratio > 0.9 '
+               'AND isi_violation < 0.1 '
+               'AND amplitude_cutoff < 0.15',
 }
 
 
