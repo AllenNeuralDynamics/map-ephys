@@ -594,10 +594,11 @@ class UnitPeriodLinearFit(dj.Computed):
 
             
 @schema
-class UnitAlignedSpikes(dj.Computed):
+class UnitTrialAlignedSpikes(dj.Computed):
     definition = """
     -> ephys.Unit
     -> AlignType
+    -> experiment.BehaviorTrial
     ---
     aligned_spikes:   longblob   
     """
@@ -622,7 +623,7 @@ class UnitAlignedSpikes(dj.Computed):
        
         # Session-wise event times (relative to session start)
         q_events = ephys.TrialEvent & key & {'trial_event_type': q_align_type.fetch1('trial_event_type')}
-        events, trials = q_events.fetch('trial_event_time', 'trial', order_by='trial asc')  
+        trial_keys, events = q_events.fetch('KEY', 'trial_event_time', order_by='trial asc')       
         first_trial_start = ((ephys.TrialEvent & (experiment.Session & key)) 
                              & {'trial_event_type': 'bitcodestart', 'trial': 1}
                             ).fetch1('trial_event_time')
@@ -646,13 +647,22 @@ class UnitAlignedSpikes(dj.Computed):
         
         # times = np.mean([bins[:-1], bins[1:]], axis=0)
         
-        # --- Insert data ---
-        self.insert1(dict(**key, 
-                          aligned_spikes=dict(spike_time=spike_time_aligned,
-                                              trials=trials, 
-                                                   )
-                         ))
+        # --- Insert data (batch for trials) ---
+        self.insert([{**key, **trial_key,
+                      'aligned_spikes': spike_time_trial}
+                     for trial_key, spike_time_trial in zip(trial_keys, spike_time_aligned)],
+                     ignore_extra_fields=True)
         
+        
+@schema
+class UnitPSTH(dj.Computed):
+    definition = """
+    -> ephys.Unit
+    -> AlignType
+    ---
+    aligned_spikes:   longblob   
+    """
+
     
 
 # ============= Helpers =============
