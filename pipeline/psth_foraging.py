@@ -10,7 +10,7 @@ from . import (lab, experiment, ephys)
 [lab, experiment, ephys]  # NOQA
 
 from . import get_schema_name, dict_to_hash, create_schema_settings
-from pipeline import foraging_model, foraging_analysis
+from pipeline import foraging_model, foraging_analysis, histology
 from pipeline.util import _get_unit_independent_variable
 
 schema = dj.schema(get_schema_name('psth_foraging'), **create_schema_settings)
@@ -360,8 +360,8 @@ class AlignType(dj.Lookup):
     
     definition = """
     align_type_name: varchar(32)   # user-friendly name of alignment type
-    -> experiment.TrialEventType
     ---
+    -> experiment.TrialEventType
     align_type_description='':    varchar(256)    # description of this align type
     trial_offset=0:      smallint         # e.g., offset = 1 means the psth will be aligned to the event of the *next* trial.
     time_offset=0:       Decimal(10, 5)   # will be added to the event time for manual correction (e.g., bitcodestart to actual zaberready)  
@@ -372,6 +372,7 @@ class AlignType(dj.Lookup):
         ['trial_start', 'zaberready', '', 0, 0, [-3, 2], [-2, 1]],
         ['go_cue', 'go', '', 0, 0, [-2, 5], [-1, 3]],
         ['first_lick_after_go_cue', 'choice', 'first non-early lick', 0, 0, [-2, 5], [-1, 3]],
+        ['choice', 'choice', 'first non-early lick', 0, 0, [-2, 5], [-1, 3]],  # Alias for first_lick_after_go_cue
         ['iti_start', 'trialend', '', 0, 0, [-3, 10], [-3, 5]],
         ['next_trial_start', 'zaberready', '', 1, 0, [-10, 3], [-8, 1]],
         ['next_two_trial_start', 'zaberready', '', 2, 0, [-10, 5], [-8, 3]],
@@ -591,7 +592,68 @@ class UnitPeriodLinearFit(dj.Computed):
                                 't': model_fit.tvalues[para]
                                 })
 
+            
+@schema
+class UnitAlignedSpikes(dj.Computed):
+    definition = """
+    -> ephys.Unit
+    -> AlignType
+    ---
+    aligned_spikes:   longblob   
+    """
+    
+    # Only units that pass unit QC and behavioral QC
+    align_type_to_do = AlignType & 'align_type_name IN ("go_cue", "choice", "iti_start")'
+    unit_to_do = (ephys.UnitForagingQC & 'unit_minimal_session_qc = 1'
+                  & histology.ElectrodeCCFPosition.ElectrodePosition    # With ccf
+                  - experiment.PhotostimForagingTrial)  # Without photostim
+    key_source = unit_to_do * align_type_to_do
+    
+#     bin_size = 0.01  # 10 ms window
+#     gaussian_sigma = 0.50  # 50 ms half-Gaussian causal filter
+    
+      
+    def make(self, key):
+        q_align_type = AlignType & key
+        offset, win = q_align_type.fetch1('time_offset', 'psth_win')
+        
+        # -- Fetch data --
+        spike_times = (ephys.Unit & key).fetch1('spike_times')
+       
+        # Session-wise event times (relative to session start)
+        q_events = ephys.TrialEvent & key & {'trial_event_type': q_align_type.fetch1('trial_event_type')}
+        events, trials = q_events.fetch('trial_event_time', 'trial', order_by='trial asc')  
+        first_trial_start = ((ephys.TrialEvent & (experiment.Session & key)) 
+                             & {'trial_event_type': 'bitcodestart', 'trial': 1}
+                            ).fetch1('trial_event_time')
+        
+        events -= first_trial_start    # Make event times also relative to the first sTrig
+        events = events.astype(float)
+        events += float(offset)   # Manual correction if necessary (e.g. estimate trialstart from bitcodestart when zaberready is missing)
+        
+        # -- Align spike times to each event --
+        # bins = np.arange(win[0], win[1], UnitAlignedFiring.bin_size)
 
+        # --- Aligned spike count in bins ---
+        # spike_count_aligned = np.empty([len(trials), len(bins) - 1], dtype='uint8')
+        
+        spike_time_aligned = []
+        for e_t in events:
+            s_t = spike_times[(e_t + win[0] <= spike_times) & (spike_times < e_t + win[1])]
+            spike_time_aligned.append(s_t - e_t)
+            
+        # spike_count_aligned = np.array(list(map(lambda x: np.histogram(x, bins=bins)[0], spike_time_aligned)))
+        
+        # times = np.mean([bins[:-1], bins[1:]], axis=0)
+        
+        # --- Insert data ---
+        self.insert1(dict(**key, 
+                          aligned_spikes=dict(spike_time=spike_time_aligned,
+                                              trials=trials, 
+                                                   )
+                         ))
+        
+    
 
 # ============= Helpers =============
 
