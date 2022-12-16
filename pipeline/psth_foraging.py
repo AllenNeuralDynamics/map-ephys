@@ -717,26 +717,18 @@ class UnitPSTHChoiceOutcome(dj.Computed):
 
             bins = np.arange(psth_win[0], psth_win[1], UnitPSTHChoiceOutcome.bin_size)
             ts = np.mean([bins[1:], bins[:-1]], axis=0)
+            
+            psth = compute_psth_from_spikes_aligned(spikes_aligned, bins, if_filtered=True, 
+                                                    sigma=UnitPSTHChoiceOutcome.gaussian_sigma/UnitPSTHChoiceOutcome.bin_size)
 
-            # PSTH
-            psth_per_trial = np.vstack([np.histogram(trial_spike, bins=bins)[0] / UnitPSTHChoiceOutcome.bin_size for trial_spike in spikes_aligned])    
-            psth = np.mean(psth_per_trial, axis=0)
-            sem = np.std(psth_per_trial, axis=0) / np.sqrt(len(q_this))
-
-            # Gaussian filter
-            psth_per_trial_filtered = halfgaussian_filter1d(psth_per_trial, 
-                                                            sigma=UnitPSTHChoiceOutcome.gaussian_sigma/UnitPSTHChoiceOutcome.bin_size)
-            psth_filtered = np.mean(psth_per_trial_filtered, axis=0)
-            sem_filtered = np.std(psth_per_trial_filtered, axis=0) / np.sqrt(len(q_this))
-
-            # Batch insert
+           # Batch insert
             self.insert([{**key, 
                          'choice': choice, 
                          'outcome': outcome,
                          'raw': spikes_aligned,
                          'trials': trials,
-                         'psth': psth,
-                         'psth_filtered': psth_filtered,
+                         'psth': np.vstack([psth['psth'], psth['sem']]),
+                         'psth_filtered': np.vstack([psth['psth_filtered'], psth['sem_filtered']]),
                          'ts': ts}])
         return
     
@@ -744,6 +736,24 @@ class UnitPSTHChoiceOutcome(dj.Computed):
     
 
 # ============= Helpers =============
+def compute_psth_from_spikes_aligned(spikes_aligned, bins, if_filtered=True, sigma=None):   
+    # PSTH
+    psth_per_trial = np.vstack([np.histogram(trial_spike, bins=bins)[0] / UnitPSTHChoiceOutcome.bin_size for trial_spike in spikes_aligned])    
+    psth = np.mean(psth_per_trial, axis=0)
+    sem = np.std(psth_per_trial, axis=0) / np.sqrt(len(spikes_aligned))
+        
+    if not if_filtered:
+        return dict(psth=psth, sem=sem)
+
+    # Gaussian filter
+    psth_per_trial_filtered = halfgaussian_filter1d(psth_per_trial, 
+                                                    sigma=sigma)
+    psth_filtered = np.mean(psth_per_trial_filtered, axis=0)
+    sem_filtered = np.std(psth_per_trial_filtered, axis=0) / np.sqrt(len(spikes_aligned))
+    
+    return dict(psth=psth, sem=sem, psth_filtered=psth_filtered, sem_filtered=sem_filtered)
+
+
 
 def compute_unit_psth_and_raster(unit_key, trial_keys, align_type='go_cue', bin_size=0.04):
     """
