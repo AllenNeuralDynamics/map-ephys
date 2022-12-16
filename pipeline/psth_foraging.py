@@ -11,7 +11,8 @@ from . import (lab, experiment, ephys)
 
 from . import get_schema_name, dict_to_hash, create_schema_settings
 from pipeline import foraging_model, foraging_analysis, histology
-from pipeline.util import _get_unit_independent_variable
+from pipeline.util import _get_unit_independent_variable, _get_units_hemisphere
+
 
 schema = dj.schema(get_schema_name('psth_foraging'), **create_schema_settings)
 log = logging.getLogger(__name__)
@@ -204,6 +205,19 @@ class TrialCondition(dj.Lookup):
                     'task_protocol': 100,
                     'water_port': 'right', 
                     'early_lick': 'no early',
+                    'auto_water': 0,
+                    'free_water': 0
+                    }
+            },           
+            {
+                'trial_condition_name': 'ignore',
+                'trial_condition_func': '_get_trials_exclude_stim',
+                'trial_condition_arg': {
+                    'outcome': 'ignore',
+                    'task': 'foraging',
+                    'task_protocol': 100,
+                    # 'water_port': 'right', 
+                    # 'early_lick': 'no early',
                     'auto_water': 0,
                     'free_water': 0
                     }
@@ -655,13 +669,77 @@ class UnitTrialAlignedSpikes(dj.Computed):
         
         
 @schema
-class UnitPSTH(dj.Computed):
+class UnitPSTHChoiceOutcome(dj.Computed):
     definition = """
-    -> ephys.Unit
+    -> ephys.Unit 
     -> AlignType
+    choice:    varchar(10)   # 'ipsi', 'contra', 'ignore'
+    outcome:   varchar(10)   # 'hit', 'miss', 'ignore'
     ---
-    aligned_spikes:   longblob   
+    raw:    longblob      # spike times in this condition
+    trials:     longblob  # trial numbers used in this condition
+    psth:      longblob   # binned firing rate (mean +/- sem)
+    psth_filtered:   longblob  # filtered by causal half Gaussian (mean +/- sem)
+    ts:      longblob  # time centers
     """
+    
+    key_source = dj.U(*(ephys.Unit.heading.primary_key), 'align_type_name') & UnitTrialAlignedSpikes  # Remove `trial` field
+
+    if_exclude_early_lick=False
+    bin_size = 0.01
+    gaussian_sigma = 0.05
+    
+    def make(self, key):
+        no_early_lick = '_noearlylick' if UnitPSTHChoiceOutcome.if_exclude_early_lick else ''
+        offset, psth_win = (AlignType & key).fetch1('trial_offset', 'psth_win')
+
+        # Get hemi
+        try:
+            hemi = (ephys.Unit * histology.ElectrodeCCFPosition.ElectrodePosition.proj(hemi='IF(ccf_x > 5739, "left", "right")') & key).fetch1('hemi')
+        except:
+            hemi = _get_units_hemisphere(key)
+            
+        ipsi = "L" if hemi == "left" else "R"
+        contra = "R" if hemi == "left" else "L"
+
+        # Get trials
+        condition_mapping = {('contra', 'hit'): f'{contra}_hit{no_early_lick}',
+                             ('contra', 'miss'): f'{contra}_miss{no_early_lick}',
+                             ('ipsi', 'hit'): f'{ipsi}_hit{no_early_lick}',
+                             ('ipsi', 'miss'): f'{ipsi}_miss{no_early_lick}',
+                             ('ignore', 'ignore'): 'ignore',
+                            }
+
+        for (choice, outcome), condition_str in condition_mapping.items():
+            q_this = TrialCondition.get_trials(condition_str, offset) & key
+            trials, spikes_aligned = (UnitTrialAlignedSpikes & key & q_this).fetch('trial', 'aligned_spikes')
+            if not len(trials): continue
+
+            bins = np.arange(psth_win[0], psth_win[1], UnitPSTHChoiceOutcome.bin_size)
+            ts = np.mean([bins[1:], bins[:-1]], axis=0)
+
+            # PSTH
+            psth_per_trial = np.vstack([np.histogram(trial_spike, bins=bins)[0] / UnitPSTHChoiceOutcome.bin_size for trial_spike in spikes_aligned])    
+            psth = np.mean(psth_per_trial, axis=0)
+            sem = np.std(psth_per_trial, axis=0) / np.sqrt(len(q_this))
+
+            # Gaussian filter
+            psth_per_trial_filtered = halfgaussian_filter1d(psth_per_trial, 
+                                                            sigma=UnitPSTHChoiceOutcome.gaussian_sigma/UnitPSTHChoiceOutcome.bin_size)
+            psth_filtered = np.mean(psth_per_trial_filtered, axis=0)
+            sem_filtered = np.std(psth_per_trial_filtered, axis=0) / np.sqrt(len(q_this))
+
+            # Batch insert
+            self.insert([{**key, 
+                         'choice': choice, 
+                         'outcome': outcome,
+                         'raw': spikes_aligned,
+                         'trials': trials,
+                         'psth': psth,
+                         'psth_filtered': psth_filtered,
+                         'ts': ts}])
+        return
+    
 
     
 
@@ -802,3 +880,29 @@ def _compute_unit_period_activity(unit_key, period):
 
     return {'trial': actual_trials, 'spike_counts': np.array(spike_counts),
             'durations': np.array(durations), 'firing_rates': np.array(spike_counts) / np.array(durations)}
+
+
+import scipy.ndimage
+
+def halfgaussian_kernel1d(sigma, radius):
+    """
+    Computes a 1-D Half-Gaussian convolution kernel.
+    """
+    sigma2 = sigma * sigma
+    x = np.arange(0, radius+1)
+    phi_x = np.exp(-0.5 / sigma2 * x ** 2)
+    phi_x = phi_x / phi_x.sum()
+
+    return phi_x
+
+def halfgaussian_filter1d(input, sigma, axis=-1, output=None,
+                      mode="constant", cval=0.0, truncate=4.0):
+    """
+    Convolves a 1-D Half-Gaussian convolution kernel.
+    """
+    sd = float(sigma)
+    # make the radius of the filter equal to truncate standard deviations
+    lw = int(truncate * sd + 0.5)
+    weights = halfgaussian_kernel1d(sigma, lw)
+    origin = -lw // 2
+    return scipy.ndimage.convolve1d(input, weights, axis, output, mode, cval, origin)
