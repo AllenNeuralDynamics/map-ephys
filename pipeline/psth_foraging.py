@@ -735,7 +735,10 @@ class UnitPSTHChoiceOutcome(dj.Computed):
         return
 
 
-from .report import save_figs, store_stage, get_wr_sessdatetime
+import pathlib
+
+report_cfg = dj.config['stores']['report_store']
+store_stage = pathlib.Path(report_cfg['stage'])
 
 @schema
 class UnitDriftMetric(dj.Computed):
@@ -1040,3 +1043,14 @@ def compute_and_plot_drift_metric(this_aver, win_size, ax):
     ax2.set_ylim([0, 1])
     
     return poisson_cdf, instability
+
+def save_figs(figs, fig_names, dir2save, prefix):
+    fig_dict = {}
+    for fig, figname in zip(figs, fig_names):
+        fig_fp = dir2save / (prefix + figname + '.png')
+        fig.tight_layout()
+        fig.savefig(fig_fp, facecolor=fig.get_facecolor())
+        print(f'Generated {fig_fp}')
+        fig_dict[figname] = fig_fp.as_posix()
+
+    return fig_dict
