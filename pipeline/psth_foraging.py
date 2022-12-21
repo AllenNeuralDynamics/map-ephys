@@ -5,6 +5,7 @@ import numpy as np
 import datajoint as dj
 import pandas as pd
 import statsmodels.api as sm
+import matplotlib.pyplot as plt
 
 from . import (lab, experiment, ephys)
 [lab, experiment, ephys]  # NOQA
@@ -12,6 +13,7 @@ from . import (lab, experiment, ephys)
 from . import get_schema_name, dict_to_hash, create_schema_settings
 from pipeline import foraging_model, foraging_analysis, histology
 from pipeline.util import _get_unit_independent_variable, _get_units_hemisphere
+
 
 
 schema = dj.schema(get_schema_name('psth_foraging'), **create_schema_settings)
@@ -731,9 +733,92 @@ class UnitPSTHChoiceOutcome(dj.Computed):
                          'psth_filtered': np.vstack([psth['psth_filtered'], psth['sem_filtered']]),
                          'ts': ts}])
         return
-    
+
+
+from .report import save_figs, store_stage, get_wr_sessdatetime
+
+@schema
+class UnitDriftMetric(dj.Computed):
+    definition = """
+    -> ephys.Unit
+    ---
+    drift_plot:   filepath@report_store
+    """
+        
+    key_source = ephys.Unit & UnitPSTHChoiceOutcome
+    align_type = 'iti_start'  # Use firing rates aligned to iti_start
+    psth_win = (AlignType & {'align_type_name': align_type}).fetch1('psth_win')
+    smooth_win = 6
+
+    class DriftMetric(dj.Part):
+        definition = """
+        -> master
+        method:   varchar(50)  # how to define driftmetric. e.g.: 'poisson_p_choice_outcome', 'poisson_p_all', 'linear_fitting_time_p'
+        ---
+        drift_metric:   float
+        """
 
     
+    def make(self, key):
+        """
+        Compute driftmetric and generate plots
+        """
+
+        units_dir = store_stage / 'unit_drift_metrics'
+        units_dir.mkdir(parents=True, exist_ok=True)
+
+        fig, ax = plt.subplots(2, 3, figsize=(15, 7), layout='constrained')
+        ax = ax.flatten()
+        n = 0
+           
+        poisson_cdf_all = []
+
+        # --- Dave's Poisson p method; grouped by choice/outcome ---
+        for choice in ('contra', 'ipsi'):
+            for outcome in ('hit', 'miss'):
+                this_raw = (UnitPSTHChoiceOutcome & key & {'align_type_name': UnitDriftMetric.align_type, 'choice': choice, 'outcome': outcome}).fetch1('raw')
+                this_aver = list(map(lambda x: len(x) / (UnitDriftMetric.psth_win[1] - UnitDriftMetric.psth_win[0]), this_raw))
+                poisson_cdf, instability_dave = compute_and_plot_drift_metric(this_aver, 
+                                                                         UnitDriftMetric.smooth_win,
+                                                                         # int(np.round(len(this_raw)/20)), 
+                                                                         ax[n])
+                ax[n].set_title(f'{choice} {outcome}, instab = {instability_dave:.2f}')
+                n += 1
+                
+                poisson_cdf_all.append(poisson_cdf)
+            
+        poisson_cdf_all = np.hstack(poisson_cdf_all)
+        instability_all = np.logical_or(poisson_cdf_all > 0.95, poisson_cdf_all < 0.05).sum() / len(poisson_cdf_all)
+        # print(f"Dave's drift metric, grouped by choice x outcome: {instability_all}")
+            
+        # --- Not grouped (native Dave method) ---
+        this_raw = (UnitTrialAlignedSpikes & key & 'align_type_name = "iti_start"').fetch('aligned_spikes', order_by='trial')
+        this_aver = list(map(lambda x: len(x) / (UnitDriftMetric.psth_win[1] - UnitDriftMetric.psth_win[0]), this_raw))
+        _, instability_dave = compute_and_plot_drift_metric(this_aver,
+                                                                 UnitDriftMetric.smooth_win,
+                                                                 # int(np.round(len(this_raw)/20)), 
+                                                                 ax[-1])
+        
+        ax[-1].set_title(f'grouped = {instability_all:.2f}, not grouped: {instability_dave:.2f}')
+        fig.suptitle(key)
+        # print(f"not grouped: {instability}")
+                
+        fn_prefix = f'{instability_all:0.4f}_{key["subject_id"]}_{key["session"]}_{key["insertion_number"]}_{key["unit"]:03}_'
+        fn_prefix = "".join( x for x in fn_prefix if (x.isalnum() or x in "._- "))  # turn to valid file name
+        
+        fig_dict = save_figs(
+            (fig,),
+            ('drift_plot',),
+            units_dir, fn_prefix)
+ 
+        plt.close('all')
+        self.insert1({**key, **fig_dict})
+        self.DriftMetric.insert([{**key, 'method': 'poisson_p_choice_outcome', 'drift_metric': instability_all}, 
+                                 {**key, 'method': 'poisson_p_dave', 'drift_metric': instability_dave}])
+    
+        
+        return
+        
 
 # ============= Helpers =============
 def compute_psth_from_spikes_aligned(spikes_aligned, bins, if_filtered=True, sigma=None):   
@@ -916,3 +1001,42 @@ def halfgaussian_filter1d(input, sigma, axis=-1, output=None,
     weights = halfgaussian_kernel1d(sigma, lw)
     origin = -lw // 2
     return scipy.ndimage.convolve1d(input, weights, axis, output, mode, cval, origin)
+
+
+from scipy.stats import poisson
+
+def compute_poisson_p(aver_firing_per_trial, window_size=6, ds_factor=6):
+    """
+    Dave Liu's method
+    Major problem: the result highly depends on the window size
+    """
+    mean_spike_rate = np.mean(aver_firing_per_trial)
+    # -- moving-average
+    kernel = np.ones(window_size) / window_size
+    processed_trial_spike_rates = np.convolve(aver_firing_per_trial, kernel, 'valid')
+    # -- down-sample
+    processed_trial_spike_rates = processed_trial_spike_rates[::ds_factor]
+    # -- compute drift_qc from poisson distribution
+    poisson_cdf = poisson.cdf(processed_trial_spike_rates, mean_spike_rate)
+    instability = np.logical_or(poisson_cdf > 0.95, poisson_cdf < 0.05).sum() / len(poisson_cdf)
+    return np.array(poisson_cdf), instability, processed_trial_spike_rates
+
+
+def compute_and_plot_drift_metric(this_aver, win_size, ax):
+    ax.plot(np.linspace(0, 1, len(this_aver)), np.array(this_aver), 'b', lw=0.5)
+    
+    poisson_cdf, instability, smoothed_firing = compute_poisson_p(this_aver, window_size=win_size, 
+                                                                  ds_factor=win_size)
+    # p = kstest(this_aver, 'norm')
+    # print(p.pvalue)
+    xx = np.linspace(0, 1, len(poisson_cdf))    
+    ax.plot(xx, smoothed_firing, 'b-')
+    ax.axhline(np.mean(this_aver), c='b', ls='--')
+
+    idx_sig = np.logical_or(poisson_cdf > 0.95, poisson_cdf < 0.05)
+    ax2 = ax.twinx()
+    ax2.plot(xx, poisson_cdf, 'ko-')
+    ax2.plot(xx[idx_sig], poisson_cdf[idx_sig], 'ro')
+    ax2.set_ylim([0, 1])
+    
+    return poisson_cdf, instability
