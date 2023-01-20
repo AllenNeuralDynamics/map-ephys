@@ -448,6 +448,11 @@ class BehaviorBpodIngest(dj.Imported):
 
                     if not (experiment.Session & {'subject_id': subject_id_now,
                                                   'session_date': date_now}):
+                        try:
+                            session_number_xls = int(df_wr_row['Training Session']) if 'Training Session' in df_wr_row else None
+                        except:
+                            session_number_xls = None
+                        
                         key_source.append({'subject_id': subject_id_now,
                                            'session_date': date_now,
                                            'session_comment': str(df_wr_row['Notes']),
@@ -455,7 +460,7 @@ class BehaviorBpodIngest(dj.Imported):
                                            'session_water_earned': df_wr_row[
                                                'Water during training'],
                                            'session_water_extra': df_wr_row['Extra water'],
-                                           'session_number_xls': int(df_wr_row['Training Session']) if 'Training Session' in df_wr_row else None})
+                                           'session_number_xls': session_number_xls})
 
         return key_source
 
@@ -551,7 +556,15 @@ class BehaviorBpodIngest(dj.Imported):
 
             # It must be a foraging session
             # extracting task protocol - hard-code implementation
-            if 'foraging' in experiment_name.lower() or (
+            if 'foraging_randomwalk' in experiment_name.lower():
+                task = 'foraging'
+                task_protocol = 120
+                lick_ports = ['left', 'right']
+            elif 'foraging_uncoupled' in experiment_name.lower():
+                task = 'foraging'
+                task_protocol = 110
+                lick_ports = ['left', 'right']
+            elif 'foraging' in experiment_name.lower() or (
                     'bari' in experiment_name.lower() and 'cohen' in experiment_name.lower()):
                 if 'var:lickport_number' in df_behavior_session and \
                         df_behavior_session['var:lickport_number'][0] == 3:
@@ -581,6 +594,8 @@ class BehaviorBpodIngest(dj.Imported):
                     setupname = 'Training-Tower-4'
                 elif session.setup_name.lower() in ['ephys_han']:
                     setupname = 'AIND-Ephys-Han' if key['session_date'] > date(2022, 1, 1) else 'Ephys-Han'
+                elif 'aind-tower' in session.setup_name.lower():
+                    setupname = session.setup_name  # Correctly formated AIND tower. Such as 'AIND-Tower-4'
                 else:
                     log.info('ERROR: unhandled setup name {} (from {}). Skipping...'.format(
                         session.setup_name, session.path))

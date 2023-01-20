@@ -66,6 +66,8 @@ class TaskProtocol(dj.Lookup):
         ('s1 stim', 8, 'mini-distractors and full distractors (only at late delay), with different levels of the mini-stim and the full-stim during sample period'),
         ('s1 stim', 9, 'mini-distractors and full distractors (only at late delay), with different levels of the mini-stim and the full-stim during sample period'),
         ('foraging', 100, 'moving lickports, delay period, early lick punishment, sound GO cue then free choice'),
+        ('foraging', 110, 'Decoupled blocks, no baiting, Grossman et al., 2021'),
+        ('foraging', 120, 'random walk, no baiting, Miller et al., 2021'),
         ('foraging 3lp', 101, 'moving lickports, delay period, early lick punishment, sound GO cue then free choice from three lickports'),
         ('multi-target-licking', 1, 'multi-target-licking task - 2D'),
         ('multi-target-licking', 2, 'multi-target-licking task - Spontaneous')

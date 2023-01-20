@@ -379,7 +379,6 @@ def load_meta_foraging():
     
     # For each entry
     duplicate_subject_num = 0
-    duplicate_WR_num = 0
 
     for item in df_surgery.iterrows():
         item = item[1]
@@ -394,11 +393,20 @@ def load_meta_foraging():
                     'sex': item['sex'],
                     'username': item['experimenter'],
                     }
+            
+            if np.isnan(item['animal#']):
+                continue
+            
+            if len(lab.Subject & f'subject_id = {item["animal#"]}'):
+                duplicate_subject_num += 1
+            continue
+
             try:
                 lab.Subject().insert1(subjectdata)
                 print('  added subject: ', item['animal#'])
-            except dj.errors.DuplicateError:
-                duplicate_subject_num += 1
+            except:
+                print(f'Error in adding subject: {subjectdata}')
+
                 # print('  duplicate. animal :',item['animal#'], ' already exists')
                 
             # -- Add lab.Surgery() --
@@ -424,14 +432,15 @@ def load_meta_foraging():
                         'wr_start_date': df_wr['Date'][df_wr['Date'].first_valid_index()],
                         'wr_start_weight': df_wr['Weight'][df_wr['Weight'].first_valid_index()],
                         }
+                                
                 try:
                     lab.WaterRestriction().insert1(wrdata)
                     print('  added WR: ', item['ID'])
-                except dj.errors.DuplicateError:
-                    duplicate_WR_num += 1
+                except:
+                    print(f'Error in adding h2o: {wrdata}')
                     # print('  duplicate. water restriction:', item['ID'], ' already exists')
                     
-    print(f'  {duplicate_subject_num} subjects and {duplicate_WR_num} WRs already exist')
+    print(f'  {duplicate_subject_num} subjects already exist')
     
 
 def populate_ephys(populate_settings={'reserve_jobs': True, 'display_progress': True}):
