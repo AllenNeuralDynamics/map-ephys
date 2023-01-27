@@ -250,7 +250,8 @@ class BlockFraction(dj.Computed):
         # trial-count > minimum_trial_per_block
         ks_tr_count = experiment.SessionBlock.aggr(experiment.SessionBlock.BlockTrial, tr_count='count(*)') & 'tr_count > {}'.format(minimum_trial_per_block)
         # is_real_training only
-        ks_real_training = ks_tr_count - (experiment.SessionBlock.WaterPortRewardProbability & 'reward_probability >= 1')
+        ks_real_training = ks_tr_count - (experiment.SessionBlock.WaterPortRewardProbability & 'reward_probability >= 1'
+                                          ) - (SessionTaskProtocol & 'session_task_protocol in (120)')
         return ks_real_training
 
     def make(self, key):
@@ -267,7 +268,7 @@ class BlockFraction(dj.Computed):
         block_reward_fraction = dict(
             block_length=trialnum,
             # block_reward_per_trial=block_rw.mean(),
-            block_reward_per_trial=block_rw.sum()/block_choice.sum(),   # Exclude ignore trials
+            block_reward_per_trial=block_rw.sum()/block_choice.sum() if block_choice.sum() else 0,   # Exclude ignore trials
             )
 
         self.insert1({**key, **block_reward_fraction})
