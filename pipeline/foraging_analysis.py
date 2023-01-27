@@ -178,8 +178,12 @@ class SessionStats(dj.Computed):
                 random_number_Rs = None
                 
             # Compute foraging efficiency
+            no_baiting = (SessionTaskProtocol & key).fetch('session_task_protocol') in (110, 120)
             if q_actual_finished:
-                for_eff_optimal, for_eff_optimal_random_seed = foraging_eff(reward_rate, p_Ls, p_Rs, random_number_Ls, random_number_Rs)
+                if no_baiting:
+                    for_eff_optimal, for_eff_optimal_random_seed = foraging_eff_no_baiting(reward_rate, p_Ls, p_Rs, random_number_Ls, random_number_Rs)
+                else:
+                    for_eff_optimal, for_eff_optimal_random_seed = foraging_eff(reward_rate, p_Ls, p_Rs, random_number_Ls, random_number_Rs)
             else:
                 for_eff_optimal, for_eff_optimal_random_seed = np.nan, np.nan
 
@@ -466,6 +470,24 @@ def draw_bs_pairs_linreg(x, y, size=1):
         return bs_slope_reps, bs_intercept_reps
     except:
         return np.nan, np.nan
+
+
+def foraging_eff_no_baiting(reward_rate, p_Ls, p_Rs, random_number_L=None, random_number_R=None):  # Calculate foraging efficiency (only for 2lp)
+        
+    # --- Optimal-aver (use optimal expectation as 100% efficiency) ---
+    for_eff_optimal = reward_rate / np.nanmean(np.max([p_Ls, p_Rs], axis=0))
+    
+    if random_number_L is None:
+        return for_eff_optimal, np.nan
+        
+    # --- Optimal-actual (uses the actual random numbers by simulation)
+    reward_refills = np.vstack([p_Ls >= random_number_L, p_Rs >= random_number_R])
+    optimal_choices = np.argmax([p_Ls, p_Rs], axis=0)  # Greedy choice, assuming the agent knows the groundtruth
+    optimal_rewards = reward_refills[0][optimal_choices==0].sum() + reward_refills[1][optimal_choices==1].sum()
+    for_eff_optimal_random_seed = reward_rate / (optimal_rewards / len(optimal_choices))
+    
+    return for_eff_optimal, for_eff_optimal_random_seed
+
     
 
 def foraging_eff(reward_rate, p_Ls, p_Rs, random_number_L=None, random_number_R=None):  # Calculate foraging efficiency (only for 2lp)
