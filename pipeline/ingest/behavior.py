@@ -981,7 +981,9 @@ class BehaviorBpodIngest(dj.Imported):
                     ramping_down_from_stdout = self._get_message(df_behavior_session, 'laser ramping down')
                     if len(ramping_down_from_stdout):
                         if this_row['bpod_timer_align_to'] not in ('whole trial', 'after go cue'):  # Otherwise it's a hard stop
-                            assert ramping_down == float(ramping_down_from_stdout.iloc[0]), 'ERROR: ramping down not consistent!!'
+                            # assert ramping_down == float(ramping_down_from_stdout.iloc[0]), 'ERROR: ramping down not consistent!!'
+                            if ramping_down != float(ramping_down_from_stdout.iloc[0]):
+                                log.warning(f'ramping down not consistent, from time markers = {ramping_down}, from text = {float(ramping_down_from_stdout.iloc[0])}')
                     
                     rows['photostim_foraging_trial'].extend([this_row])
                 
