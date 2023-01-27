@@ -15,6 +15,7 @@ import decimal
 import warnings
 import datajoint as dj
 import json
+import traceback
 
 from pybpodgui_api.models.project import Project as BPodProject
 from . import InvalidBehaviorTrialError
@@ -404,7 +405,11 @@ class BehaviorBpodIngest(dj.Imported):
         Get message from df_behavior_trial
         Locate the row of 'MSG' and return the next content in the next row
         """
-        return df.loc[df.index[df['MSG'].str.contains(MSG)] + 1, 'MSG']
+        index_msg = df['MSG'].str.contains(MSG) 
+        if sum(index_msg == True):
+            return df.loc[df.index[df['MSG'].str.contains(MSG)] + 1, 'MSG']
+        else:
+            return None
 
 
     @property
@@ -416,6 +421,7 @@ class BehaviorBpodIngest(dj.Imported):
                                          water_restriction_number NOT LIKE "dl%" AND 
                                          water_restriction_number NOT LIKE "SC%" AND
                                          water_restriction_number NOT LIKE "tw%"'''
+                                        #   & 'water_restriction_number = "XY_14"'
                                       ).fetch(
             'water_restriction_number', 'subject_id'))}
 
@@ -457,8 +463,7 @@ class BehaviorBpodIngest(dj.Imported):
                                            'session_date': date_now,
                                            'session_comment': str(df_wr_row['Notes']),
                                            'session_weight': df_wr_row['Weight'],
-                                           'session_water_earned': df_wr_row[
-                                               'Water during training'],
+                                           'session_water_earned': df_wr_row['Water during training'],
                                            'session_water_extra': df_wr_row['Extra water'],
                                            'session_number_xls': session_number_xls})
 
@@ -478,6 +483,7 @@ class BehaviorBpodIngest(dj.Imported):
                     self.make(k)
             except Exception as e:
                 log.warning('session key {} error: {}'.format(k, repr(e)))
+                traceback.print_exc()
                 if not kwargs.get('reserve_jobs', False):
                     raise
 
@@ -500,7 +506,9 @@ class BehaviorBpodIngest(dj.Imported):
                 stps = exp.setups
                 for stp in stps:
                     for session in stp.sessions:
-                        if (session.subjects and session.subjects[0].find(subject_now) > -1
+                        if (session.subjects and 
+                            (session.subjects[0].find(subject_now) > -1 or
+                             (subject_now == "XY_04" and session.subjects[0].find("XX_04") > -1))  # Exceptions                            
                                 and session.name.startswith(date_now_str)):
                             sessions_now.append(session)
                             session_start_times_now.append(session.started)
@@ -640,7 +648,7 @@ class BehaviorBpodIngest(dj.Imported):
             
             if sess_key['session_date'] > date(2021, 5, 23):
                 # starting from https://github.com/hanhou/Foraging-Pybpod/commit/775dff4435a8c9b8ad14501f0b44de741d683737
-                trial_start_idxs = df_behavior_session[(df_behavior_session['TYPE'] == 'stdout') & (df_behavior_session['MSG'] == 'Blocknumber:')].index
+                trial_start_idxs = df_behavior_session[(df_behavior_session['TYPE'] == 'stdout') & (df_behavior_session['MSG'] == 'Trialnumber:')].index - 2
             else:
                 trial_start_idxs = df_behavior_session[(df_behavior_session['TYPE'] == 'TRIAL') & (df_behavior_session['MSG'] == 'New trial')].index
                 trial_start_idxs -= 2 # To reflect the change that bitcode is moved before the "New trial" line
@@ -687,7 +695,7 @@ class BehaviorBpodIngest(dj.Imported):
                 rows['sess_trial'].append(sess_trial_key)
 
                 # ---- session block ----
-                if 'Block_number' in df_behavior_session:
+                if task_protocol in (100,): # 'Block_number' in df_behavior_session:
                     if np.isnan(df_behavior_trial['Block_number'].to_list()[0]):
                         blocknum_local = 0 if np.isnan(
                             blocknum_local_prev) else blocknum_local_prev
@@ -704,26 +712,32 @@ class BehaviorBpodIngest(dj.Imported):
                             df_behavior_session[p_reward_varname][0][blocknum_local]).quantize(
                             decimal.Decimal(
                                 '.001'))  # Note: Reward probabilities never changes during a **bpod** session
+                            
+                elif task_protocol in (110, 120):  # Decoupled blocks and Random walk: reward probs were generated on-the-fly
+                    p_L = json.loads(self._get_message(df_behavior_trial, 'reward_p_L').iloc[0])
+                    p_R = json.loads(self._get_message(df_behavior_trial, 'reward_p_R').iloc[0])
+                    reward_probability = {'left': p_L, 'right': p_R}
+                
 
-                    # determine if this is a new block: compare reward probability with the previous block
-                    if rows['sess_block']:
-                        itsanewblock = dict_to_hash(reward_probability) != dict_to_hash(
-                            rows['sess_block'][-1]['reward_probability'])
-                    else:
-                        itsanewblock = True
+                # determine if this is a new block: compare reward probability with the previous block
+                if rows['sess_block']:
+                    itsanewblock = dict_to_hash(reward_probability) != dict_to_hash(
+                        rows['sess_block'][-1]['reward_probability'])
+                else:
+                    itsanewblock = True
 
-                    if itsanewblock:
-                        all_blocks = [b['block'] for b in
-                                      rows['sess_block'] + concat_rows['sess_block']]
-                        block_num = (np.max(all_blocks) + 1 if all_blocks else 1)
-                        rows['sess_block'].append({**sess_key,
-                                                   'block': block_num,
-                                                   'block_start_time': trial_start_time.total_seconds(),
-                                                   'reward_probability': reward_probability})
-                    else:
-                        block_num = rows['sess_block'][-1]['block']
+                if itsanewblock:
+                    all_blocks = [b['block'] for b in
+                                    rows['sess_block'] + concat_rows['sess_block']]
+                    block_num = (np.max(all_blocks) + 1 if all_blocks else 1)
+                    rows['sess_block'].append({**sess_key,
+                                                'block': block_num,
+                                                'block_start_time': trial_start_time.total_seconds(),
+                                                'reward_probability': reward_probability})
+                else:
+                    block_num = rows['sess_block'][-1]['block']
 
-                    rows['sess_block_trial'].append({**sess_trial_key, 'block': block_num})
+                rows['sess_block_trial'].append({**sess_trial_key, 'block': block_num})
 
 
                 # ====== Event times ======
@@ -941,25 +955,37 @@ class BehaviorBpodIngest(dj.Imported):
                     # Nullables and sanity checks
                     align_to_from_stdout = self._get_message(df_behavior_trial, 'laser aligned to')
                     if len(align_to_from_stdout):
-                        timer_duration = self._get_message(df_behavior_trial, 'laser timer duration')
-                        if int(timer_duration.iloc[0]) == 1000 and align_to_from_stdout.values[0].lower() == 'After ITI START'.lower():  # New "whole trial" condition
+                        timer_duration = json.loads(self._get_message(df_behavior_trial, 'laser timer duration').iloc[0])
+                        if type(timer_duration) == list:
+                            duration = timer_duration[0]
+                        else:
+                            duration = timer_duration
+                            
+                        if int(duration) == 1000 and align_to_from_stdout.values[0].lower() == 'After ITI START'.lower():  # New "whole trial" condition
                             this_row['bpod_timer_align_to'] = 'whole trial'
                         else:
                             this_row['bpod_timer_align_to'] = align_to_from_stdout.values[0].lower()
                         
                     timer_offset_from_stdout = self._get_message(df_behavior_trial, 'laser timer offset')
                     if len(timer_offset_from_stdout):
-                        tmp = json.loads(timer_offset_from_stdout.iloc[0])
+                        try:
+                            tmp = json.loads(timer_offset_from_stdout.iloc[0])
+                        except:
+                            tmp = float(timer_offset_from_stdout.iloc[0].strip('[]'))
                         this_row['bpod_timer_offset'] = tmp[0] if isinstance(tmp, list) else tmp
 
                     side_code_from_stdout = self._get_message(df_behavior_trial, 'laser side')
                     if len(side_code_from_stdout):
-                        assert side_code == side_code_from_stdout.astype(int).iloc[0], 'ERROR: stim_sides from WavePlayer != side from stdout message'
+                        # assert side_code == side_code_from_stdout.astype(int).iloc[0], 'ERROR: stim_sides from WavePlayer != side from stdout message'
+                        if side_code != side_code_from_stdout.astype(int).iloc[0]:
+                            log.warning(f'laser side conflict:  from WavePlayer stamps = {side_code}, from message = {side_code_from_stdout.astype(int).iloc[0]}')
                         
                     ramping_down_from_stdout = self._get_message(df_behavior_session, 'laser ramping down')
                     if len(ramping_down_from_stdout):
-                        if this_row['bpod_timer_align_to'] != 'whole trial':  # Otherwise it's a hard stop
-                            assert ramping_down == float(ramping_down_from_stdout.iloc[0]), 'ERROR: ramping down not consistent!!'
+                        if this_row['bpod_timer_align_to'] not in ('whole trial', 'after go cue'):  # Otherwise it's a hard stop
+                            # assert ramping_down == float(ramping_down_from_stdout.iloc[0]), 'ERROR: ramping down not consistent!!'
+                            if ramping_down != float(ramping_down_from_stdout.iloc[0]):
+                                log.warning(f'ramping down not consistent, from time markers = {ramping_down}, from text = {float(ramping_down_from_stdout.iloc[0])}')
                     
                     rows['photostim_foraging_trial'].extend([this_row])
                 

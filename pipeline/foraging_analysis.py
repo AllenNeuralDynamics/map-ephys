@@ -111,7 +111,9 @@ class SessionStats(dj.Computed):
                 'session_hit_num': len(q_hit),
                 'session_miss_num': len(q_miss),
                 'session_ignore_num': len(experiment.BehaviorTrial & key & 'outcome = "ignore"'),
-                'session_early_lick_ratio': len(experiment.BehaviorTrial & key & 'early_lick="early"') / (len(q_hit) + len(q_miss)),
+                'session_early_lick_ratio': len(experiment.BehaviorTrial & key & 'early_lick="early"') / (len(q_hit) + len(q_miss)) 
+                                            if len(q_hit) + len(q_miss)
+                                            else np.nan,
                 'session_autowater_num': len(q_auto_water),
                 'session_pure_choices_num': len(q_actual_finished)}
         
@@ -122,7 +124,7 @@ class SessionStats(dj.Computed):
             
         # -- Double dipping ratio --
         q_double_dipping = TrialStats & key & 'double_dipping = 1'
-        session_stats.update(session_double_dipping_ratio_hit = len(q_double_dipping & q_hit) / len(q_hit))        
+        session_stats.update(session_double_dipping_ratio_hit = len(q_double_dipping & q_hit) / len(q_hit)) if len(q_hit) else np.nan     
         
         # Double dipping in missed trial is detected only for sessions later than the first day of using new lickport retraction logic 
         if (experiment.Session & key & 'session_date > "2020-08-11"'):   
@@ -159,8 +161,8 @@ class SessionStats(dj.Computed):
                     # Must be exactly the same as the pybpod protocol 
                     # https://github.com/hanhou/Foraging-Pybpod/blob/5e19e1d227657ed19e27c6e1221495e9f180c323/pybpod_protocols/Foraging_baptize_by_fire_new_lickport_retraction.py#L478
                     np.random.seed(int(start_seed))
-                    random_number_L_this = np.random.uniform(0.,1.,2000).tolist()
-                    random_number_R_this = np.random.uniform(0.,1.,2000).tolist()
+                    random_number_L_this = np.random.uniform(0.,1.,4000).tolist()
+                    random_number_R_this = np.random.uniform(0.,1.,4000).tolist()
                     
                     # Fill in random numbers
                     random_number_Ls[start_idx - 1 :] = random_number_L_this[: len(random_number_Ls) - start_idx + 1]
