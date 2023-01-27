@@ -976,7 +976,9 @@ class BehaviorBpodIngest(dj.Imported):
 
                     side_code_from_stdout = self._get_message(df_behavior_trial, 'laser side')
                     if len(side_code_from_stdout):
-                        assert side_code == side_code_from_stdout.astype(int).iloc[0], 'ERROR: stim_sides from WavePlayer != side from stdout message'
+                        # assert side_code == side_code_from_stdout.astype(int).iloc[0], 'ERROR: stim_sides from WavePlayer != side from stdout message'
+                        if side_code != side_code_from_stdout.astype(int).iloc[0]:
+                            log.warning(f'laser side conflict:  from WavePlayer stamps = {side_code}, from message = {side_code_from_stdout.astype(int).iloc[0]}')
                         
                     ramping_down_from_stdout = self._get_message(df_behavior_session, 'laser ramping down')
                     if len(ramping_down_from_stdout):
