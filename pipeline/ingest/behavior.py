@@ -978,6 +978,7 @@ class BehaviorBpodIngest(dj.Imported):
                     if len(side_code_from_stdout):
                         # assert side_code == side_code_from_stdout.astype(int).iloc[0], 'ERROR: stim_sides from WavePlayer != side from stdout message'
                         if side_code != side_code_from_stdout.astype(int).iloc[0]:
+                            this_row['side'] = side_code_from_stdout.astype(int).iloc[0]  # Override
                             log.warning(f'laser side conflict:  from WavePlayer stamps = {side_code}, from message = {side_code_from_stdout.astype(int).iloc[0]}')
                         
                     ramping_down_from_stdout = self._get_message(df_behavior_session, 'laser ramping down')
@@ -985,6 +986,7 @@ class BehaviorBpodIngest(dj.Imported):
                         if this_row['bpod_timer_align_to'] not in ('whole trial', 'after go cue'):  # Otherwise it's a hard stop
                             # assert ramping_down == float(ramping_down_from_stdout.iloc[0]), 'ERROR: ramping down not consistent!!'
                             if ramping_down != float(ramping_down_from_stdout.iloc[0]):
+                                this_row['ramping_down'] = float(ramping_down_from_stdout.iloc[0])
                                 log.warning(f'ramping down not consistent, from time markers = {ramping_down}, from text = {float(ramping_down_from_stdout.iloc[0])}')
                     
                     rows['photostim_foraging_trial'].extend([this_row])
