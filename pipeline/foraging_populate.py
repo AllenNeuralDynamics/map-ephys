@@ -1,6 +1,6 @@
 import datajoint as dj
 from datetime import datetime
-from pipeline import lab, get_schema_name, foraging_analysis, report, psth_foraging, foraging_model, ephys
+from pipeline import lab, get_schema_name, foraging_analysis, report, psth_foraging, foraging_model, ephys, experiment
 import multiprocessing as mp
 
 # Ray does not support Windows, use multiprocessing instead
@@ -31,8 +31,8 @@ my_tables = [
         ],
         # Round 3 - reports
         # [
-        #     # report.SessionLevelForagingSummary,
-        #     # report.SessionLevelForagingLickingPSTH
+            # report.SessionLevelForagingSummary,
+            # report.SessionLevelForagingLickingPSTH
         #     report.UnitLevelForagingEphysReportAllInOne
         # ]
         ]
@@ -48,6 +48,8 @@ def show_progress(rounds):
     for runround in rounds:
         for table in my_tables[runround]:
             table.progress()
+            last_session_date = max((experiment.Session & table).fetch('session_date'))
+            print(f'last date = {last_session_date}')
             # finished_in_current_key_source = len(table.key_source.proj() & table)
             # total_in_current_key_source = len(table.key_source.proj())
             # print(f'{table.__name__}: '
@@ -58,10 +60,10 @@ def show_progress(rounds):
         print(f'', flush=True)
     print('------------------------\n', flush=True)
         
-def populatemytables(paralel = True, cores = 9, all_rounds = range(len(my_tables))):
+def populatemytables(pool = None, cores = 9, all_rounds = range(len(my_tables))):
     show_progress(all_rounds)
     
-    if paralel:
+    if pool is not None:
         # schema = dj.schema(get_schema_name('foraging_analysis'),locals())
         # schema.jobs.delete()
     
@@ -76,13 +78,13 @@ def populatemytables(paralel = True, cores = 9, all_rounds = range(len(my_tables
 
             print('  round '+ str(runround)+'  done...', flush=True)
     
-    show_progress(all_rounds)
+        show_progress(all_rounds)
         
     # Just in case there're anything missing?          
     print('--- Run with single core...', flush=True)
     for runround in all_rounds:
         print('   round '+str(runround)+'', flush=True)
-        arguments = {'display_progress' : True, 'reserve_jobs' : False, 'order': 'random'}
+        arguments = {'display_progress' : True, 'reserve_jobs' : True, 'order': 'random'}
         populatemytables_core(arguments, runround)
         
     # Show progress
@@ -98,7 +100,7 @@ if __name__ == '__main__' and use_ray == False:  # This is a workaround for mp.a
     cores = int(mp.cpu_count()) - 1  # Auto core number selection
     pool = mp.Pool(processes=cores)
     
-    populatemytables(paralel=True, cores=cores, all_rounds=range(len(my_tables)))
+    populatemytables(pool=pool, cores=cores, all_rounds=range(len(my_tables)))
     
     if pool != '':
         pool.close()
