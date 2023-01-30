@@ -101,17 +101,23 @@ class RepeatTimer(Timer):
         while not self.finished.wait(self.interval):
             self.function(*self.args, **self.kwargs)
             
-def run_with_progress(run_count=1, print_interval=10):
+def run_with_progress(cores=None, run_count=1, print_interval=10):
     
-    cores = int(mp.cpu_count()) - 1  # Auto core number selection
+    if cores is None:
+        cores = int(mp.cpu_count()) - 1  # Auto core number selection
+
     print(f'# workers = {cores}')
-    pool = mp.Pool(processes=cores)
+
+    if cores > 1:
+        pool = mp.Pool(processes=cores)
+    else:
+        pool = None
     
     # t1 = threading.Thread(target=populatemytables, 
     #                       kwargs=dict(pool=pool, cores=cores, all_rounds=range(len(my_tables)))
     # )
     
-    t2 = RepeatTimer(10.0, show_progress)
+    t2 = RepeatTimer(print_interval, show_progress)
     
     # t1.start()
     t2.start()
