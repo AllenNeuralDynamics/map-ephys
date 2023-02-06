@@ -388,7 +388,7 @@ def load_meta_foraging():
             # -- Add lab.Subject() --
             subjectdata = {
                     'subject_id': item['animal#'],
-                    'cage_number': item['cage#'],
+                    'cage_number': item['cage#'] if ~np.isnan(item['cage#']) else 0,
                     'date_of_birth': item['DOB'],
                     'sex': item['sex'],
                     'username': item['experimenter'],
@@ -399,7 +399,7 @@ def load_meta_foraging():
             
             if len(lab.Subject & f'subject_id = {item["animal#"]}'):
                 duplicate_subject_num += 1
-            continue
+                continue
 
             try:
                 lab.Subject().insert1(subjectdata)
@@ -428,7 +428,7 @@ def load_meta_foraging():
                 wrdata = {
                         'subject_id':item['animal#'],
                         'water_restriction_number': item['ID'],
-                        'cage_number': item['cage#'],
+                        'cage_number': item['cage#'] if ~np.isnan(item['cage#']) else 0,
                         'wr_start_date': df_wr['Date'][df_wr['Date'].first_valid_index()],
                         'wr_start_weight': df_wr['Weight'][df_wr['Weight'].first_valid_index()],
                         }
