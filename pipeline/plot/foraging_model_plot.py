@@ -582,6 +582,70 @@ def plot_unit_all_in_one(key):
     return fig
 
 
+from pipeline.model import descriptive_analysis
+from pipeline.foraging_model import get_session_history
+
+def plot_session_logistic(key, ax=None):
+    '''
+    Generate logistic regression
+    '''
+    
+    c, r, _, p, _ = get_session_history(key, remove_ignored=True)
+    choice = c[0]
+    reward = np.sum(r, axis=0)
+    
+    if_photostim = len(experiment.PhotostimForagingTrial & key) > 0
+    
+    if not if_photostim:
+        if ax is None:
+            _, ax = plt.subplots(1, 1, figsize=(5, 5))
+        
+        # Logistic regression on all trials
+        data, Y = descriptive_analysis.prepare_logistic(choice, reward)
+        logistic_reg = descriptive_analysis.logistic_regression_bootstrap(data, Y, n_bootstrap=1000)
+        descriptive_analysis.plot_logistic_regression(logistic_reg, ax=ax)
+    else:    
+        if ax is None:
+            _, ax = plt.subplots(1, 1, figsize=(10, 20))
+
+        # add subaxis in ax
+        gs = ax._subplotspec.subgridspec(2, 2, height_ratios=[1, 3], width_ratios = [1, 1])
+        ax_fit_ctrl = ax.get_figure().add_subplot(gs[0, 0])
+        ax_fit_photostim = ax.get_figure().add_subplot(gs[0, 1])
+        ax_compare = ax.get_figure().add_subplot(gs[1, :])
+        
+        ax_fit_photostim.get_shared_y_axes().join(ax_fit_photostim, ax_fit_ctrl)
+        
+        # Get control and photostim trials (non-ignored only)
+        non_ignore_trial = (experiment.BehaviorTrial & key & 'outcome != "ignore"').fetch('trial')
+        photostim_trial = (experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"')).fetch('trial')
+        photostim_trial_in_non_ignore = np.nonzero(np.in1d(non_ignore_trial, photostim_trial))[0]   # np.searchsorted(non_ignore_trial, photostim_trial)
+        ctrl_trial_in_non_ignore = np.nonzero(~np.in1d(non_ignore_trial, photostim_trial))[0] 
+         
+        # Fit models for control, photostim, photostim_next
+        data_ctrl, Y_ctrl = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=ctrl_trial_in_non_ignore)
+        logistic_reg_ctrl = descriptive_analysis.logistic_regression_bootstrap(data_ctrl, Y_ctrl, n_bootstrap=1000)
+        descriptive_analysis.plot_logistic_regression(logistic_reg_ctrl, ax_fit_ctrl)
+        ax_fit_ctrl.get_legend().remove()
+        ax_fit_ctrl.set(title=f'control trials (n={len(ctrl_trial_in_non_ignore)})')
+
+        data_photostim, Y_photostim = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_trial_in_non_ignore)
+        logistic_reg_photostim = descriptive_analysis.logistic_regression_bootstrap(data_photostim, Y_photostim, n_bootstrap=1000)
+        descriptive_analysis.plot_logistic_regression(logistic_reg_photostim, ax_fit_photostim)
+        ax_fit_photostim.set(title=f'photostim trials (n={len(photostim_trial_in_non_ignore)}, {len(photostim_trial_in_non_ignore) / len(non_ignore_trial):.2%})')
+        ax_fit_photostim.set(yticks=[], ylabel='')
+
+        data_photostim_next, Y_photostim_next = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_trial_in_non_ignore + 1)
+        logistic_reg_photostim_next = descriptive_analysis.logistic_regression_bootstrap(data_photostim_next, Y_photostim_next, n_bootstrap=1000)
+        #  descriptive_analysis.plot_logistic_regression(logistic_reg_photostim_next)
+        
+        descriptive_analysis.plot_logistic_compare([logistic_reg_ctrl, logistic_reg_photostim, logistic_reg_photostim_next], ax_all=ax_compare)
+    
+        ax.remove()
+    
+    return [ax_fit_ctrl, ax_fit_photostim, ax_compare]
+
+
 # ---- Helper funcs -----
 
 def _get_model_comparison_results(sess_key, model_comparison_idx=0, sort=None):
