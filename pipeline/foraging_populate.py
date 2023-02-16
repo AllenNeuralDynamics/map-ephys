@@ -22,6 +22,7 @@ my_tables = [
             foraging_analysis.BlockFraction,
             foraging_analysis.SessionMatching,
             foraging_analysis.BlockEfficiency,
+            foraging_analysis.SessionEngagementControl,
             ],
         # Round 1 - model fitting
         [
@@ -94,12 +95,22 @@ def populatemytables(pool = None, cores = 9, all_rounds = range(len(my_tables)))
         
     # Show progress
     # show_progress(all_rounds)
+
+def clear_jobs():
+    for schema in [foraging_model, foraging_analysis, psth_foraging, report, ephys]:
+        s = schema.schema
+        print(f'{schema}: {len(s.jobs)} remaining jobs cleaned!')
+        s.jobs.delete()
+    return
     
     
 class RepeatTimer(Timer):
     def run(self):
         while not self.finished.wait(self.interval):
-            self.function(*self.args, **self.kwargs)
+            try:
+                self.function(*self.args, **self.kwargs)
+            except as e:
+                print(e)
             
 def run_with_progress(cores=None, run_count=1, print_interval=10):
     
@@ -117,10 +128,13 @@ def run_with_progress(cores=None, run_count=1, print_interval=10):
     #                       kwargs=dict(pool=pool, cores=cores, all_rounds=range(len(my_tables)))
     # )
     
+    clear_jobs()
     t2 = RepeatTimer(print_interval, show_progress)
+    t3 = RepeatTimer(3600 * 24, clear_jobs)   # clear jobs each day
     
     # t1.start()
     t2.start()
+    t3.start()
     
     while run_count:
         try:
@@ -131,6 +145,7 @@ def run_with_progress(cores=None, run_count=1, print_interval=10):
     
     # t1.join()
     t2.join()
+    t3.join()
     
     if pool != '':
         pool.close()
