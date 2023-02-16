@@ -201,7 +201,7 @@ def _get_ephys_trial_event_times(all_align_types, align_to, trial_keys):
         offset_trial_keys = (experiment.BehaviorTrial & trial_keys.proj(_='trial', trial=f'trial + {trial_offset}'))
 
         times = (offset_trial_keys.aggr(
-            ephys.TrialEvent & q_align, trial_event_id='max(trial_event_id)')
+            ephys.TrialEvent & {'trial_event_type': q_align.fetch1('trial_event_type')}, trial_event_id='max(trial_event_id)')
                  * ephys.TrialEvent).fetch('trial_event_time', order_by='trial').astype(float)
 
         tr_events[eve] = times + float(time_offset)

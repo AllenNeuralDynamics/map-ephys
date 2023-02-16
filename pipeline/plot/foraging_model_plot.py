@@ -582,6 +582,124 @@ def plot_unit_all_in_one(key):
     return fig
 
 
+from pipeline.model import descriptive_analysis
+from pipeline.foraging_model import get_session_history
+
+def plot_session_logistic(key, ax=None):
+    '''
+    Generate plots for logistic regression
+    If there are photostimulation trials, plot ctrl, photostim, and photostim + 1 separately
+    '''
+    
+    c, r, _, p, _ = get_session_history(key, remove_ignored=True)
+    choice = c[0]
+    reward = np.sum(r, axis=0)
+    
+    if_photostim = len((experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"'))) > 10
+    
+    if not if_photostim:
+        if ax is None:
+            _, ax = plt.subplots(1, 1, figsize=(8, 5))
+        
+        # Logistic regression on all trials
+        data, Y = descriptive_analysis.prepare_logistic(choice, reward)
+        logistic_reg = descriptive_analysis.logistic_regression_bootstrap(data, Y, n_bootstrap=1000, Cs=20)
+        descriptive_analysis.plot_logistic_regression(logistic_reg, ax=ax)
+        
+        return [ax]
+    
+    else:    
+        if ax is None:
+            _, ax = plt.subplots(1, 1, figsize=(10, 20))
+
+        # add subaxis in ax
+        gs = ax._subplotspec.subgridspec(2, 2, height_ratios=[1, 3], width_ratios = [1, 1])
+        ax_fit_ctrl = ax.get_figure().add_subplot(gs[0, 0])
+        ax_fit_photostim = ax.get_figure().add_subplot(gs[0, 1])
+        ax_compare = ax.get_figure().add_subplot(gs[1, :])
+        
+        ax_fit_photostim.get_shared_y_axes().join(ax_fit_photostim, ax_fit_ctrl)
+        
+        # Get control and photostim trials (non-ignored only)
+        non_ignore_trial = (experiment.BehaviorTrial & key & 'outcome != "ignore"').fetch('trial')
+        photostim_trial = (experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"')).fetch('trial')
+        photostim_trial_in_non_ignore = np.nonzero(np.in1d(non_ignore_trial, photostim_trial))[0]   # np.searchsorted(non_ignore_trial, photostim_trial)
+        ctrl_trial_in_non_ignore = np.nonzero(~np.in1d(non_ignore_trial, photostim_trial))[0] 
+         
+        # Fit models for control, photostim, photostim_next
+        data_ctrl, Y_ctrl = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=ctrl_trial_in_non_ignore)
+        logistic_reg_ctrl = descriptive_analysis.logistic_regression_bootstrap(data_ctrl, Y_ctrl, n_bootstrap=1000, Cs=20)
+        descriptive_analysis.plot_logistic_regression(logistic_reg_ctrl, ax_fit_ctrl)
+        ax_fit_ctrl.get_legend().remove()
+        ax_fit_ctrl.set(title=f'control trials (n={len(ctrl_trial_in_non_ignore)})')
+
+        data_photostim, Y_photostim = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_trial_in_non_ignore)
+        logistic_reg_photostim = descriptive_analysis.logistic_regression_bootstrap(data_photostim, Y_photostim, n_bootstrap=1000, Cs=20)
+        descriptive_analysis.plot_logistic_regression(logistic_reg_photostim, ax_fit_photostim)
+        ax_fit_photostim.set(title=f'photostim trials (n={len(photostim_trial_in_non_ignore)}, {len(photostim_trial_in_non_ignore) / len(non_ignore_trial):.2%})')
+        ax_fit_photostim.set(yticks=[], ylabel='')
+
+        data_photostim_next, Y_photostim_next = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_trial_in_non_ignore + 1)
+        logistic_reg_photostim_next = descriptive_analysis.logistic_regression_bootstrap(data_photostim_next, Y_photostim_next, n_bootstrap=1000, Cs=20)
+        #  descriptive_analysis.plot_logistic_regression(logistic_reg_photostim_next)
+        
+        data_photostim_next5, Y_photostim_next5 = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_trial_in_non_ignore + 5)
+        logistic_reg_photostim_next5 = descriptive_analysis.logistic_regression_bootstrap(data_photostim_next5, Y_photostim_next5, n_bootstrap=1000, Cs=20)
+        
+        descriptive_analysis.plot_logistic_compare([logistic_reg_ctrl, logistic_reg_photostim, logistic_reg_photostim_next, logistic_reg_photostim_next5], 
+                                                   labels=['ctrl', 'photostim', 'photostim_next', 'photostim_5_later'], 
+                                                   edgecolors=['None', 'deepskyblue', 'skyblue', 'skyblue'],
+                                                   ax_all=ax_compare)
+    
+        ax.remove()
+    
+        return [ax_fit_ctrl, ax_fit_photostim, ax_compare]
+    
+    
+    
+def plot_session_wsls(key, ax=None):
+    '''
+    Generate plots for win-stay-lose-switch
+    If there are photostimulation trials, plot ctrl, photostim, and photostim + 1 separately
+    '''
+    c, r, _, p, _ = get_session_history(key, remove_ignored=True)
+    choice = c[0]
+    reward = np.sum(r, axis=0)
+    
+    if_photostim = len(experiment.PhotostimForagingTrial & key) > 0
+        
+    if not if_photostim:
+        if ax is None: _, ax = plt.subplots(1, 1, figsize=(7, 6))
+        
+        # WSLS regression on all trials
+        p_wsls = descriptive_analysis.win_stay_lose_shift(choice, reward)
+        descriptive_analysis.plot_wsls(p_wsls, ax=ax)
+    else:         
+        if ax is None: _, ax = plt.subplots(1, 1, figsize=(11, 6))
+        
+        # Get control and photostim trials (non-ignored only)
+        non_ignore_trial = (experiment.BehaviorTrial & key & 'outcome != "ignore"').fetch('trial')
+        photostim_trial = (experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"')).fetch('trial')
+        photostim_trial_in_non_ignore = np.nonzero(np.in1d(non_ignore_trial, photostim_trial))[0]   # np.searchsorted(non_ignore_trial, photostim_trial)
+        ctrl_trial_in_non_ignore = np.nonzero(~np.in1d(non_ignore_trial, photostim_trial))[0] 
+         
+        # Get wsls separately
+        p_wsls_ctrl = descriptive_analysis.win_stay_lose_shift(choice, reward, selected_trial_idx=ctrl_trial_in_non_ignore)
+        p_wsls_photostim = descriptive_analysis.win_stay_lose_shift(choice, reward, selected_trial_idx=photostim_trial_in_non_ignore)
+        p_wsls_photostim_next = descriptive_analysis.win_stay_lose_shift(choice, reward, selected_trial_idx=photostim_trial_in_non_ignore + 1)
+
+        descriptive_analysis.plot_wsls([p_wsls_ctrl, p_wsls_photostim, p_wsls_photostim_next], 
+                                            edgecolors=['None', 'deepskyblue', 'skyblue'], 
+                                            labels=[' (ctrl)', ' (photostim)', ' (photostim_next)'],
+                                            ax=ax)
+        h, l = ax.get_legend_handles_labels()
+        l_to_show = np.r_[:4, 6]
+        ax.legend([h[i] for i in l_to_show], [l[i] for i in l_to_show])
+
+    return ax
+    
+
+
 # ---- Helper funcs -----
 
 def _get_model_comparison_results(sess_key, model_comparison_idx=0, sort=None):

@@ -5,13 +5,16 @@ import numpy as np
 import datajoint as dj
 import pandas as pd
 import statsmodels.api as sm
+import matplotlib.pyplot as plt
 
 from . import (lab, experiment, ephys)
 [lab, experiment, ephys]  # NOQA
 
 from . import get_schema_name, dict_to_hash, create_schema_settings
-from pipeline import foraging_model, foraging_analysis
-from pipeline.util import _get_unit_independent_variable
+from pipeline import foraging_model, foraging_analysis, histology
+from pipeline.util import _get_unit_independent_variable, _get_units_hemisphere
+
+
 
 schema = dj.schema(get_schema_name('psth_foraging'), **create_schema_settings)
 log = logging.getLogger(__name__)
@@ -207,6 +210,19 @@ class TrialCondition(dj.Lookup):
                     'auto_water': 0,
                     'free_water': 0
                     }
+            },           
+            {
+                'trial_condition_name': 'ignore',
+                'trial_condition_func': '_get_trials_exclude_stim',
+                'trial_condition_arg': {
+                    'outcome': 'ignore',
+                    'task': 'foraging',
+                    'task_protocol': 100,
+                    # 'water_port': 'right', 
+                    # 'early_lick': 'no early',
+                    'auto_water': 0,
+                    'free_water': 0
+                    }
             }
             
         ]
@@ -360,8 +376,8 @@ class AlignType(dj.Lookup):
     
     definition = """
     align_type_name: varchar(32)   # user-friendly name of alignment type
-    -> experiment.TrialEventType
     ---
+    -> experiment.TrialEventType
     align_type_description='':    varchar(256)    # description of this align type
     trial_offset=0:      smallint         # e.g., offset = 1 means the psth will be aligned to the event of the *next* trial.
     time_offset=0:       Decimal(10, 5)   # will be added to the event time for manual correction (e.g., bitcodestart to actual zaberready)  
@@ -372,6 +388,7 @@ class AlignType(dj.Lookup):
         ['trial_start', 'zaberready', '', 0, 0, [-3, 2], [-2, 1]],
         ['go_cue', 'go', '', 0, 0, [-2, 5], [-1, 3]],
         ['first_lick_after_go_cue', 'choice', 'first non-early lick', 0, 0, [-2, 5], [-1, 3]],
+        ['choice', 'choice', 'first non-early lick', 0, 0, [-2, 5], [-1, 3]],  # Alias for first_lick_after_go_cue
         ['iti_start', 'trialend', '', 0, 0, [-3, 10], [-3, 5]],
         ['next_trial_start', 'zaberready', '', 1, 0, [-10, 3], [-8, 1]],
         ['next_two_trial_start', 'zaberready', '', 2, 0, [-10, 5], [-8, 3]],
@@ -591,9 +608,240 @@ class UnitPeriodLinearFit(dj.Computed):
                                 't': model_fit.tvalues[para]
                                 })
 
+            
+@schema
+class UnitTrialAlignedSpikes(dj.Computed):
+    definition = """
+    -> ephys.Unit
+    -> AlignType
+    -> experiment.BehaviorTrial
+    ---
+    aligned_spikes:   longblob   
+    """
+    
+    # Only units that pass unit QC and behavioral QC
+    align_type_to_do = AlignType & 'align_type_name IN ("go_cue", "choice", "iti_start")'
+    unit_to_do = (ephys.UnitForagingQC & 'unit_minimal_session_qc = 1'
+                  & histology.ElectrodeCCFPosition.ElectrodePosition    # With ccf
+                  - experiment.PhotostimForagingTrial)  # Without photostim
+    key_source = unit_to_do * align_type_to_do
+    
+#     bin_size = 0.01  # 10 ms window
+#     gaussian_sigma = 0.50  # 50 ms half-Gaussian causal filter
+    
+      
+    def make(self, key):
+        q_align_type = AlignType & key
+        offset, win = q_align_type.fetch1('time_offset', 'psth_win')
+        
+        # -- Fetch data --
+        spike_times = (ephys.Unit & key).fetch1('spike_times')
+       
+        # Session-wise event times (relative to session start)
+        q_events = ephys.TrialEvent & key & {'trial_event_type': q_align_type.fetch1('trial_event_type')}
+        trial_keys, events = q_events.fetch('KEY', 'trial_event_time', order_by='trial asc')       
+        first_trial_start = ((ephys.TrialEvent & (experiment.Session & key)) 
+                             & {'trial_event_type': 'bitcodestart', 'trial': 1}
+                            ).fetch1('trial_event_time')
+        
+        events -= first_trial_start    # Make event times also relative to the first sTrig
+        events = events.astype(float)
+        events += float(offset)   # Manual correction if necessary (e.g. estimate trialstart from bitcodestart when zaberready is missing)
+        
+        # -- Align spike times to each event --
+        # bins = np.arange(win[0], win[1], UnitAlignedFiring.bin_size)
 
+        # --- Aligned spike count in bins ---
+        # spike_count_aligned = np.empty([len(trials), len(bins) - 1], dtype='uint8')
+        
+        spike_time_aligned = []
+        for e_t in events:
+            s_t = spike_times[(e_t + win[0] <= spike_times) & (spike_times < e_t + win[1])]
+            spike_time_aligned.append(s_t - e_t)
+            
+        # spike_count_aligned = np.array(list(map(lambda x: np.histogram(x, bins=bins)[0], spike_time_aligned)))
+        
+        # times = np.mean([bins[:-1], bins[1:]], axis=0)
+        
+        # --- Insert data (batch for trials) ---
+        self.insert([{**key, **trial_key,
+                      'aligned_spikes': spike_time_trial}
+                     for trial_key, spike_time_trial in zip(trial_keys, spike_time_aligned)],
+                     ignore_extra_fields=True)
+        
+        
+@schema
+class UnitPSTHChoiceOutcome(dj.Computed):
+    definition = """
+    -> ephys.Unit 
+    -> AlignType
+    choice:    varchar(10)   # 'ipsi', 'contra', 'ignore'
+    outcome:   varchar(10)   # 'hit', 'miss', 'ignore'
+    ---
+    raw:    longblob      # spike times in this condition
+    trials:     longblob  # trial numbers used in this condition
+    psth:      longblob   # binned firing rate (mean +/- sem)
+    psth_filtered:   longblob  # filtered by causal half Gaussian (mean +/- sem)
+    ts:      longblob  # time centers
+    """
+    
+    key_source = dj.U(*(ephys.Unit.heading.primary_key), 'align_type_name') & UnitTrialAlignedSpikes  # Remove `trial` field
+
+    if_exclude_early_lick=False
+    bin_size = 0.01
+    gaussian_sigma = 0.05
+    
+    def make(self, key):
+        no_early_lick = '_noearlylick' if UnitPSTHChoiceOutcome.if_exclude_early_lick else ''
+        offset, psth_win = (AlignType & key).fetch1('trial_offset', 'psth_win')
+
+        # Get hemi
+        try:
+            hemi = (ephys.Unit * histology.ElectrodeCCFPosition.ElectrodePosition.proj(hemi='IF(ccf_x > 5739, "left", "right")') & key).fetch1('hemi')
+        except:
+            hemi = _get_units_hemisphere(key)
+            
+        ipsi = "L" if hemi == "left" else "R"
+        contra = "R" if hemi == "left" else "L"
+
+        # Get trials
+        condition_mapping = {('contra', 'hit'): f'{contra}_hit{no_early_lick}',
+                             ('contra', 'miss'): f'{contra}_miss{no_early_lick}',
+                             ('ipsi', 'hit'): f'{ipsi}_hit{no_early_lick}',
+                             ('ipsi', 'miss'): f'{ipsi}_miss{no_early_lick}',
+                             ('ignore', 'ignore'): 'ignore',
+                            }
+
+        for (choice, outcome), condition_str in condition_mapping.items():
+            q_this = TrialCondition.get_trials(condition_str, offset) & key
+            trials, spikes_aligned = (UnitTrialAlignedSpikes & key & q_this).fetch('trial', 'aligned_spikes')
+            if not len(trials): continue
+
+            bins = np.arange(psth_win[0], psth_win[1], UnitPSTHChoiceOutcome.bin_size)
+            ts = np.mean([bins[1:], bins[:-1]], axis=0)
+            
+            psth = compute_psth_from_spikes_aligned(spikes_aligned, bins, if_filtered=True, 
+                                                    sigma=UnitPSTHChoiceOutcome.gaussian_sigma/UnitPSTHChoiceOutcome.bin_size)
+
+           # Batch insert
+            self.insert([{**key, 
+                         'choice': choice, 
+                         'outcome': outcome,
+                         'raw': spikes_aligned,
+                         'trials': trials,
+                         'psth': np.vstack([psth['psth'], psth['sem']]),
+                         'psth_filtered': np.vstack([psth['psth_filtered'], psth['sem_filtered']]),
+                         'ts': ts}])
+        return
+
+
+import pathlib
+
+report_cfg = dj.config['stores']['report_store']
+store_stage = pathlib.Path(report_cfg['stage'])
+
+@schema
+class UnitDriftMetric(dj.Computed):
+    definition = """
+    -> ephys.Unit
+    ---
+    drift_plot:   filepath@report_store
+    """
+        
+    key_source = ephys.Unit & UnitPSTHChoiceOutcome
+    align_type = 'iti_start'  # Use firing rates aligned to iti_start
+    psth_win = (AlignType & {'align_type_name': align_type}).fetch1('psth_win')
+    smooth_win = 6
+
+    class DriftMetric(dj.Part):
+        definition = """
+        -> master
+        method:   varchar(50)  # how to define driftmetric. e.g.: 'poisson_p_choice_outcome', 'poisson_p_all', 'linear_fitting_time_p'
+        ---
+        drift_metric:   float
+        """
+
+    
+    def make(self, key):
+        """
+        Compute driftmetric and generate plots
+        """
+
+        units_dir = store_stage / 'unit_drift_metrics'
+        units_dir.mkdir(parents=True, exist_ok=True)
+
+        fig, ax = plt.subplots(2, 3, figsize=(15, 7), layout='constrained')
+        ax = ax.flatten()
+        n = 0
+           
+        poisson_cdf_all = []
+
+        # --- Dave's Poisson p method; grouped by choice/outcome ---
+        for choice in ('contra', 'ipsi'):
+            for outcome in ('hit', 'miss'):
+                this_raw = (UnitPSTHChoiceOutcome & key & {'align_type_name': UnitDriftMetric.align_type, 'choice': choice, 'outcome': outcome}).fetch1('raw')
+                this_aver = list(map(lambda x: len(x) / (UnitDriftMetric.psth_win[1] - UnitDriftMetric.psth_win[0]), this_raw))
+                poisson_cdf, instability_dave = compute_and_plot_drift_metric(this_aver, 
+                                                                         UnitDriftMetric.smooth_win,
+                                                                         # int(np.round(len(this_raw)/20)), 
+                                                                         ax[n])
+                ax[n].set_title(f'{choice} {outcome}, instab = {instability_dave:.2f}')
+                n += 1
+                
+                poisson_cdf_all.append(poisson_cdf)
+            
+        poisson_cdf_all = np.hstack(poisson_cdf_all)
+        instability_all = np.logical_or(poisson_cdf_all > 0.95, poisson_cdf_all < 0.05).sum() / len(poisson_cdf_all)
+        # print(f"Dave's drift metric, grouped by choice x outcome: {instability_all}")
+            
+        # --- Not grouped (native Dave method) ---
+        this_raw = (UnitTrialAlignedSpikes & key & 'align_type_name = "iti_start"').fetch('aligned_spikes', order_by='trial')
+        this_aver = list(map(lambda x: len(x) / (UnitDriftMetric.psth_win[1] - UnitDriftMetric.psth_win[0]), this_raw))
+        _, instability_dave = compute_and_plot_drift_metric(this_aver,
+                                                                 UnitDriftMetric.smooth_win,
+                                                                 # int(np.round(len(this_raw)/20)), 
+                                                                 ax[-1])
+        
+        ax[-1].set_title(f'grouped = {instability_all:.2f}, not grouped: {instability_dave:.2f}')
+        fig.suptitle(key)
+        # print(f"not grouped: {instability}")
+                
+        fn_prefix = f'{instability_all:0.4f}_{key["subject_id"]}_{key["session"]}_{key["insertion_number"]}_{key["unit"]:03}_'
+        fn_prefix = "".join( x for x in fn_prefix if (x.isalnum() or x in "._- "))  # turn to valid file name
+        
+        fig_dict = save_figs(
+            (fig,),
+            ('drift_plot',),
+            units_dir, fn_prefix)
+ 
+        plt.close('all')
+        self.insert1({**key, **fig_dict})
+        self.DriftMetric.insert([{**key, 'method': 'poisson_p_choice_outcome', 'drift_metric': instability_all}, 
+                                 {**key, 'method': 'poisson_p_dave', 'drift_metric': instability_dave}])
+    
+        
+        return
+        
 
 # ============= Helpers =============
+def compute_psth_from_spikes_aligned(spikes_aligned, bins, if_filtered=True, sigma=None):   
+    # PSTH
+    psth_per_trial = np.vstack([np.histogram(trial_spike, bins=bins)[0] / UnitPSTHChoiceOutcome.bin_size for trial_spike in spikes_aligned])    
+    psth = np.mean(psth_per_trial, axis=0)
+    sem = np.std(psth_per_trial, axis=0) / np.sqrt(len(spikes_aligned))
+        
+    if not if_filtered:
+        return dict(psth=psth, sem=sem)
+
+    # Gaussian filter
+    psth_per_trial_filtered = halfgaussian_filter1d(psth_per_trial, 
+                                                    sigma=sigma)
+    psth_filtered = np.mean(psth_per_trial_filtered, axis=0)
+    sem_filtered = np.std(psth_per_trial_filtered, axis=0) / np.sqrt(len(spikes_aligned))
+    
+    return dict(psth=psth, sem=sem, psth_filtered=psth_filtered, sem_filtered=sem_filtered)
+
+
 
 def compute_unit_psth_and_raster(unit_key, trial_keys, align_type='go_cue', bin_size=0.04):
     """
@@ -623,7 +871,7 @@ def compute_unit_psth_and_raster(unit_key, trial_keys, align_type='go_cue', bin_
     
     # -- Get global times for spike and event --
     q_spike = ephys.Unit & unit_key  # Using ephys.Unit, not ephys.Unit.TrialSpikes
-    q_event = ephys.TrialEvent & trial_keys & q_align_type   # Using ephys.TrialEvent, not experiment.TrialEvent
+    q_event = ephys.TrialEvent & trial_keys & {'trial_event_type': q_align_type.fetch1('trial_event_type')}   # Using ephys.TrialEvent, not experiment.TrialEvent
     
     if not q_spike or not q_event:
         return None
@@ -730,3 +978,79 @@ def _compute_unit_period_activity(unit_key, period):
 
     return {'trial': actual_trials, 'spike_counts': np.array(spike_counts),
             'durations': np.array(durations), 'firing_rates': np.array(spike_counts) / np.array(durations)}
+
+
+import scipy.ndimage
+
+def halfgaussian_kernel1d(sigma, radius):
+    """
+    Computes a 1-D Half-Gaussian convolution kernel.
+    """
+    sigma2 = sigma * sigma
+    x = np.arange(0, radius+1)
+    phi_x = np.exp(-0.5 / sigma2 * x ** 2)
+    phi_x = phi_x / phi_x.sum()
+
+    return phi_x
+
+def halfgaussian_filter1d(input, sigma, axis=-1, output=None,
+                      mode="constant", cval=0.0, truncate=4.0):
+    """
+    Convolves a 1-D Half-Gaussian convolution kernel.
+    """
+    sd = float(sigma)
+    # make the radius of the filter equal to truncate standard deviations
+    lw = int(truncate * sd + 0.5)
+    weights = halfgaussian_kernel1d(sigma, lw)
+    origin = -lw // 2
+    return scipy.ndimage.convolve1d(input, weights, axis, output, mode, cval, origin)
+
+
+from scipy.stats import poisson
+
+def compute_poisson_p(aver_firing_per_trial, window_size=6, ds_factor=6):
+    """
+    Dave Liu's method
+    Major problem: the result highly depends on the window size
+    """
+    mean_spike_rate = np.mean(aver_firing_per_trial)
+    # -- moving-average
+    kernel = np.ones(window_size) / window_size
+    processed_trial_spike_rates = np.convolve(aver_firing_per_trial, kernel, 'valid')
+    # -- down-sample
+    processed_trial_spike_rates = processed_trial_spike_rates[::ds_factor]
+    # -- compute drift_qc from poisson distribution
+    poisson_cdf = poisson.cdf(processed_trial_spike_rates, mean_spike_rate)
+    instability = np.logical_or(poisson_cdf > 0.95, poisson_cdf < 0.05).sum() / len(poisson_cdf)
+    return np.array(poisson_cdf), instability, processed_trial_spike_rates
+
+
+def compute_and_plot_drift_metric(this_aver, win_size, ax):
+    ax.plot(np.linspace(0, 1, len(this_aver)), np.array(this_aver), 'b', lw=0.5)
+    
+    poisson_cdf, instability, smoothed_firing = compute_poisson_p(this_aver, window_size=win_size, 
+                                                                  ds_factor=win_size)
+    # p = kstest(this_aver, 'norm')
+    # print(p.pvalue)
+    xx = np.linspace(0, 1, len(poisson_cdf))    
+    ax.plot(xx, smoothed_firing, 'b-')
+    ax.axhline(np.mean(this_aver), c='b', ls='--')
+
+    idx_sig = np.logical_or(poisson_cdf > 0.95, poisson_cdf < 0.05)
+    ax2 = ax.twinx()
+    ax2.plot(xx, poisson_cdf, 'ko-')
+    ax2.plot(xx[idx_sig], poisson_cdf[idx_sig], 'ro')
+    ax2.set_ylim([0, 1])
+    
+    return poisson_cdf, instability
+
+def save_figs(figs, fig_names, dir2save, prefix):
+    fig_dict = {}
+    for fig, figname in zip(figs, fig_names):
+        fig_fp = dir2save / (prefix + figname + '.png')
+        fig.tight_layout()
+        fig.savefig(fig_fp, facecolor=fig.get_facecolor())
+        print(f'Generated {fig_fp}')
+        fig_dict[figname] = fig_fp.as_posix()
+
+    return fig_dict

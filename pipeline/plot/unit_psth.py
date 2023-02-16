@@ -202,6 +202,40 @@ def _plot_psths(psths, kargs=[], vlines=[], if_sem=True, shade_bar=None, ax=None
     ax.set_xlim(xlim)
     ax.set_xlabel('Time (s)')
     ax.set_title(title)
+    
+def _plot_psths_new(psths, ts, kargs=[], vlines=[], if_sem=True, shade_bar=None, ax=None, title='', label='', xlim=_plt_xlim):
+    """
+    Refactor: psths = list[psth_mean, psth_sem]
+    """
+    if not ax:
+        fig, ax = plt.subplots(1, 1)
+
+    if not kargs:
+        kargs = [{'color': 'b'}] * len(psths)
+
+    for psth, karg in zip(psths, kargs):
+        mean = psth[0, :]
+        ax.plot(ts, mean, **karg)
+        
+        if if_sem:
+            err = psth[1, :]
+            ax.fill_between(ts, mean - err, mean + err, **karg, alpha=0.3) # alpha=karg['alpha']*0.8, color=karg['color'])
+
+
+    for x in vlines:
+        ax.axvline(x=x, linestyle='--', color='k')
+    ax.axvline(x=0, linestyle='-', color='k', lw=1.5)
+
+    if shade_bar is not None:
+        ax.axvspan(shade_bar[0], shade_bar[0] + shade_bar[1], alpha=0.3, color='royalblue')
+
+    ax.set_ylabel('spikes/s')
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    ax.set_xlim(xlim)
+    ax.set_xlabel('Time (s)')
+    ax.set_title(title)
 
 
 def _set_same_horizonal_aspect_ratio(axs, xlims, gap=0.02):
@@ -349,6 +383,106 @@ def plot_unit_psth_choice_outcome(unit_key={'subject_id': 473361, 'session': 47,
 
     return fig
 
+
+def plot_unit_psth_choice_outcome_new(unit_key={'subject_id': 473361, 'session': 47, 'insertion_number': 1, 'clustering_method': 'kilosort2', 'unit': 541},
+                                        align_types=['go_cue', 'choice', 'iti_start'],
+                                        if_raster=False,
+                                        if_sem=True,
+                                        axs=None, title=''):
+
+    """
+    Refactor plot_unit_psth_choice_outcome
+    """
+    
+    no_early_lick = ''
+
+    fig = None
+    no_titles = False
+    
+    if axs is None:
+        no_titles = True    
+        fig = plt.figure(figsize=(len(align_types)/5 * 25, (1+if_raster)/2 * 9))
+        axs = fig.subplots(1 + if_raster, len(align_types), sharey='row', sharex='col')
+        axs = np.atleast_2d(axs).reshape((1+if_raster, -1))
+        plt.subplots_adjust(top=0.8)  
+        
+        try:
+            region_name = (((ephys.Unit & unit_key) * histology.ElectrodeCCFPosition.ElectrodePosition) * ccf.CCFAnnotation).fetch1("annotation")
+        except:
+            region_name = 'unknown area'
+            
+        # Add unit info
+        unit_info = (f'{(lab.WaterRestriction & unit_key).fetch1("water_restriction_number")}, '
+                    f'{(experiment.Session & unit_key).fetch1("session_date")}, '
+                    f'imec {unit_key["insertion_number"]-1}\n'
+                    f'Unit #: {unit_key["unit"]}, '
+                    f'{region_name}'
+                    )
+        fig.text(0.1, 0.9, unit_info)              
+
+    xlims = []
+
+    for ax_i, align_type in enumerate(align_types):
+
+        offset, xlim = (psth_foraging.AlignType & {'align_type_name': align_type}).fetch1('trial_offset', 'xlim')
+        xlims.append(xlim)
+
+        # align_trial_offset is added on the get_trials, which effectively
+        # makes the psth conditioned on the previous {align_trial_offset} trials
+        mapping = [['ipsi', 'hit'], ['contra', 'hit'], ['ipsi', 'miss'], ['contra', 'miss'], ['ignore', 'ignore']]
+        
+        all_psth = [(psth_foraging.UnitPSTHChoiceOutcome & unit_key & {'align_type_name': align_type, 'choice': choice, 'outcome': outcome}
+                              ).fetch1('psth_filtered') for (choice, outcome) in mapping if not ((align_type == 'choice') and (choice == 'ignore'))]
+        
+        ts = (psth_foraging.UnitPSTHChoiceOutcome & unit_key & {'align_type_name': align_type, 'choice': 'contra', 'outcome': 'hit'}
+                              ).fetch1('ts')
+                
+        # --- plot psths (all 4 in one plot) ---
+        ax_psth = axs[1 if if_raster else 0, ax_i]
+        # period_starts_hit = _get_ephys_trial_event_times(align_types,
+        #                                                  align_to=align_type,
+        #                                                  trial_keys=psth_foraging.TrialCondition.get_trials(f'LR_hit{no_early_lick}') & unit_key,
+        #                                                  # cannot use *_hit_trials because it could have been offset
+        #                                                  )
+        # # _, period_starts_miss = _get_ephys_trial_event_times([trialstart, 'go', 'choice', 'trialend'],
+        #                                                   ipsi_miss_trials.proj() + contra_miss_trials.proj(), align_event=align_event_type)
+
+        
+        kargs = [{'color': {'contra': 'b', 'ipsi': 'r', 'ignore': 'k'}[choice],
+                  'ls': '-' if 'hit' in outcome else '--'
+                  } for (choice, outcome) in mapping]
+
+        _plot_psths_new(all_psth,
+                        ts,
+                        kargs=kargs,
+                        if_sem=if_sem,
+                        ax=ax_psth, xlim=xlim, label='rew')
+
+
+        if not no_titles:
+            ax_psth.set(title=f'{align_type}')
+        if ax_i > 0:
+            ax_psth.spines['left'].set_visible(False)
+            ax_psth.get_yaxis().set_visible(False)
+
+        # --- plot rasters (optional) ---
+        if if_raster:
+            ax_raster = axs[0, ax_i]
+            _plot_spike_raster_foraging(ipsi_hit_unit_psth, contra_hit_unit_psth, ax=ax_raster,
+                                        offset=0, vlines=period_starts_hit,
+                                        title='', xlim=xlim)
+            _plot_spike_raster_foraging(ipsi_miss_unit_psth, contra_miss_unit_psth, ax=ax_raster,
+                                        offset=len(ipsi_hit_unit_psth['trials']) + len(contra_hit_unit_psth['trials']),
+                                        vlines=[], title='', xlim=xlim)
+            ax_raster.invert_yaxis()
+
+    # Scale axis widths to keep the same horizontal aspect ratio (time) across axs
+    _set_same_horizonal_aspect_ratio(axs[1 if if_raster else 0, :], xlims)
+    if if_raster:
+        _set_same_horizonal_aspect_ratio(axs[0, :], xlims)
+    ax_psth.legend(fontsize=8)
+
+    return fig
 
 def plot_unit_psth_latent_variable_quantile(unit_key={'subject_id': 473361, 'session': 47, 'insertion_number': 1, 'clustering_method': 'kilosort2', 'unit': 541},
                                             model_id=14, n_quantile=5,
