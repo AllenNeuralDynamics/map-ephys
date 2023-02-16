@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import math
 
-
 schema = dj.schema(get_schema_name('foraging_analysis'), **create_schema_settings)
 
 dj.config["enable_python_native_blobs"] = True
@@ -442,10 +441,57 @@ class BlockEfficiency(dj.Computed):  # bias check excluded
                 regret_ideal_phat_greedy=p_star_greedy - block_fraction['block_reward_per_trial'])
 
         self.insert1({**key, **block_efficiency_data})
+        
 
+        
+@schema
+class SessionEngagementControl(dj.Computed):
+    definition = """
+    -> SessionTaskProtocol    # Foraging sessions
+    ---
+    start_trial=Null:   int   # one-based trial num (included)
+    end_trial=Null:     int   # one-based trial num (included)
+    end_removed_trial=Null:   int   # number of trials removed at the end
+    valid_ratio=Null:   float   # valid trials / total trials
+    """
+    
+    smooth_win = 10   # Smooth window to compute finished ratio
+    threshold = 0.9   # Valid trial starts from the first window that acrosses the threshold and ends by the last window that crosses the threshold
+    
+    def make(self, key):
+        if_finished = (experiment.BehaviorTrial & key).fetch('outcome', order_by='trial') != 'ignore'
+      
+        start_idx, end_idx = find_valid_trial_range(if_finished, smooth_win=SessionEngagementControl.smooth_win, threshold=SessionEngagementControl.threshold)
+        end_removed_trial = len(if_finished) - (end_idx + 1)
+        valid_ratio = (end_idx - start_idx + 1) / len(if_finished)
+        
+        self.insert1({**key,
+                      'start_trial': start_idx + 1,
+                      'end_trial': end_idx + 1,
+                      'end_removed_trial': end_removed_trial,
+                      'valid_ratio': valid_ratio})
+
+    
 
 # ====================== HELPER FUNCTIONS ==========================     
-   
+
+def find_valid_trial_range(if_finished, smooth_win=10, threshold=0.9):
+    finished = moving_average(if_finished, n=smooth_win)
+    
+    if sum(finished >= threshold):
+        start_idx = np.where(finished >= threshold)[0][0]
+        end_idx = np.where(finished >= threshold)[0][-1]
+        return start_idx, end_idx + smooth_win - 1
+    else:
+        return np.nan, np.nan
+
+
+def moving_average(a, n) :
+    ret = np.nancumsum(a, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n   
+
+    
 def draw_bs_pairs_linreg(x, y, size=1): 
     """Perform pairs bootstrap for linear regression."""#from serhan aya
     # Get rid of infs/nans
