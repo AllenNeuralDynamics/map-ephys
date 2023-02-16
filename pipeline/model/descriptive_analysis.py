@@ -372,7 +372,8 @@ def plot_wsls(p_wslss, ax=None, edgecolors=None, labels=None):
     ax.xaxis.set_ticks_position('none') 
     h, l = ax.get_legend_handles_labels()
     ax.legend(h[:3], l[:3])
-    ax.set(ylim=(0, 1))
+    ax.axhline(y=1, color='k', linestyle='--', linewidth=1)
+    # ax.set(ylim=(0, 1))
     
     return ax
     
