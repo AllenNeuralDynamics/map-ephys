@@ -162,9 +162,9 @@ def logistic_regression_CV(data, Y, Cs=10, cv=10, solver='liblinear', penalty='l
     return logistic_reg_cv
 
 
-def bootstrap(func, data, Y, n_bootstrap=1000, **kwargs):
+def bootstrap(func, data, Y, n_bootstrap=1000, n_samplesize=None, **kwargs):
     # Generate bootstrap samples
-    indices = np.random.choice(range(Y.shape[0]), size=(n_bootstrap, Y.shape[0]), replace=True)
+    indices = np.random.choice(range(Y.shape[0]), size=(n_bootstrap, Y.shape[0] if n_samplesize is None else n_samplesize), replace=True)   # Could do subsampling
     bootstrap_Y = [Y[index] for index in indices]
     bootstrap_data = [data[index, :] for index in indices]
     
@@ -192,7 +192,7 @@ def decode_betas(coef):
     return b_RewC, b_UnrC, b_C, bias
 
 
-def logistic_regression_bootstrap(data, Y, n_bootstrap=1000, **kwargs):
+def logistic_regression_bootstrap(data, Y, n_bootstrap=1000, n_samplesize=None, **kwargs):
     '''
     1. use cross-validataion to determine the best L2 penality parameter, C
     2. use bootstrap to determine the CI and std
@@ -210,7 +210,7 @@ def logistic_regression_bootstrap(data, Y, n_bootstrap=1000, **kwargs):
     
     # Bootstrap
     if n_bootstrap > 0:
-        bs = bootstrap(logistic_regression, data, Y, n_bootstrap=n_bootstrap, C=best_C[0], **kwargs)
+        bs = bootstrap(logistic_regression, data, Y, n_bootstrap=n_bootstrap, n_samplesize=n_samplesize, C=best_C[0], **kwargs)
         
         logistic_reg.coefs_bootstrap = bs
         (logistic_reg.b_RewC_CI, 
