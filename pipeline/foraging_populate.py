@@ -1,10 +1,12 @@
 import datajoint as dj
 from datetime import datetime
+import traceback
 
 import sys
 sys.path.append('/root/capsule/code')
 
-from pipeline import lab, get_schema_name, foraging_analysis, report, psth_foraging, foraging_model, ephys, experiment
+from pipeline import (lab, get_schema_name, foraging_analysis, report, psth_foraging, 
+                      foraging_model, ephys, experiment, foraging_analysis_and_export)
 import multiprocessing as mp
 from threading import Timer, Thread
 
@@ -36,11 +38,12 @@ my_tables = [
             # ephys.UnitWaveformWidth,
         ],
         # Round 3 - reports
-        # [
+         [
             # report.SessionLevelForagingSummary,
             # report.SessionLevelForagingLickingPSTH
         #     report.UnitLevelForagingEphysReportAllInOne
-        # ]
+            foraging_analysis_and_export.SessionLogisticRegression
+         ]
         ]
 
 def populatemytables_core(arguments, runround):
@@ -53,16 +56,21 @@ def show_progress(rounds=range(len(my_tables))):
     print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), flush=True)
     for runround in rounds:
         for table in my_tables[runround]:
-            table.progress()
-            last_session_date = max((experiment.Session & table).fetch('session_date'))
-            print(f'last date = {last_session_date}')
-            # finished_in_current_key_source = len(table.key_source.proj() & table)
-            # total_in_current_key_source = len(table.key_source.proj())
-            # print(f'{table.__name__}: '
-            #       f'{finished_in_current_key_source} / {total_in_current_key_source} = '
-            #       f'{finished_in_current_key_source / total_in_current_key_source:.3%},'
-            #       f'to do: {total_in_current_key_source - finished_in_current_key_source}',
-            #       flush=True)
+            dj.conn().connect()
+            # table.progress()
+            finished_in_current_key_source = len(table.key_source.proj() & table)
+            total_in_current_key_source = len(table.key_source.proj())
+            print(f"{f'{table.__name__}: ':<30}"
+                  f"{f'{finished_in_current_key_source} / {total_in_current_key_source} = {finished_in_current_key_source / total_in_current_key_source:.3%},':<40}"
+                  f"{f' to do: {total_in_current_key_source - finished_in_current_key_source}': <10},",
+                  flush=True, end='')
+            
+            try:
+                last_session_date = max((experiment.Session & table).fetch('session_date'))
+                print(f'last date = {last_session_date}', flush=True)
+            except:
+                pass
+
         print(f'', flush=True)
     print('------------------------\n', flush=True)
         
@@ -109,8 +117,8 @@ class RepeatTimer(Timer):
         while not self.finished.wait(self.interval):
             try:
                 self.function(*self.args, **self.kwargs)
-            except as e:
-                print(e)
+            except Exception as e:
+                print(traceback.format_exc())
             
 def run_with_progress(cores=None, run_count=1, print_interval=10):
     
@@ -126,8 +134,9 @@ def run_with_progress(cores=None, run_count=1, print_interval=10):
     
     # t1 = threading.Thread(target=populatemytables, 
     #                       kwargs=dict(pool=pool, cores=cores, all_rounds=range(len(my_tables)))
-    # )
+    # ) 
     
+    show_progress()
     clear_jobs()
     t2 = RepeatTimer(print_interval, show_progress)
     t3 = RepeatTimer(3600 * 24, clear_jobs)   # clear jobs each day
