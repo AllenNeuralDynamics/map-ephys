@@ -585,28 +585,22 @@ def plot_unit_all_in_one(key):
 from pipeline.model import descriptive_analysis
 from pipeline.foraging_model import get_session_history
 
-def plot_session_logistic(key, ax=None):
+def plot_session_logistic(choice, reward, photostim_idx=None, n_samplesize=None, ax=None):
     '''
     Generate plots for logistic regression
     If there are photostimulation trials, plot ctrl, photostim, and photostim + 1 separately
     '''
     
-    c, r, _, p, _ = get_session_history(key, remove_ignored=True)
-    choice = c[0]
-    reward = np.sum(r, axis=0)
-    
-    if_photostim = len((experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"'))) > 10
-    
-    if not if_photostim:
+    if photostim_idx is None:
         if ax is None:
             _, ax = plt.subplots(1, 1, figsize=(8, 5))
         
         # Logistic regression on all trials
         data, Y = descriptive_analysis.prepare_logistic(choice, reward)
-        logistic_reg = descriptive_analysis.logistic_regression_bootstrap(data, Y, n_bootstrap=1000, Cs=20)
+        logistic_reg = descriptive_analysis.logistic_regression_bootstrap(data, Y, n_bootstrap=1000, n_samplesize=n_samplesize, Cs=20)
         descriptive_analysis.plot_logistic_regression(logistic_reg, ax=ax)
         
-        return [ax]
+        return [logistic_reg]
     
     else:    
         if ax is None:
@@ -621,30 +615,27 @@ def plot_session_logistic(key, ax=None):
         ax_fit_photostim.get_shared_y_axes().join(ax_fit_photostim, ax_fit_ctrl)
         
         # Get control and photostim trials (non-ignored only)
-        non_ignore_trial = (experiment.BehaviorTrial & key & 'outcome != "ignore"').fetch('trial')
-        photostim_trial = (experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"')).fetch('trial')
-        photostim_trial_in_non_ignore = np.nonzero(np.in1d(non_ignore_trial, photostim_trial))[0]   # np.searchsorted(non_ignore_trial, photostim_trial)
-        ctrl_trial_in_non_ignore = np.nonzero(~np.in1d(non_ignore_trial, photostim_trial))[0] 
+        ctrl_idx = np.setdiff1d(np.arange(len(choice)), photostim_idx)
          
         # Fit models for control, photostim, photostim_next
-        data_ctrl, Y_ctrl = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=ctrl_trial_in_non_ignore)
-        logistic_reg_ctrl = descriptive_analysis.logistic_regression_bootstrap(data_ctrl, Y_ctrl, n_bootstrap=1000, Cs=20)
+        data_ctrl, Y_ctrl = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=ctrl_idx)
+        logistic_reg_ctrl = descriptive_analysis.logistic_regression_bootstrap(data_ctrl, Y_ctrl, n_bootstrap=1000, n_samplesize=n_samplesize, Cs=20)
         descriptive_analysis.plot_logistic_regression(logistic_reg_ctrl, ax_fit_ctrl)
         ax_fit_ctrl.get_legend().remove()
-        ax_fit_ctrl.set(title=f'control trials (n={len(ctrl_trial_in_non_ignore)})')
+        ax_fit_ctrl.set(title=ax_fit_ctrl.get_title() + f'\ncontrol trials (n={len(ctrl_idx)})')
 
-        data_photostim, Y_photostim = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_trial_in_non_ignore)
-        logistic_reg_photostim = descriptive_analysis.logistic_regression_bootstrap(data_photostim, Y_photostim, n_bootstrap=1000, Cs=20)
+        data_photostim, Y_photostim = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_idx)
+        logistic_reg_photostim = descriptive_analysis.logistic_regression_bootstrap(data_photostim, Y_photostim, n_bootstrap=1000, n_samplesize=n_samplesize, Cs=20)
         descriptive_analysis.plot_logistic_regression(logistic_reg_photostim, ax_fit_photostim)
-        ax_fit_photostim.set(title=f'photostim trials (n={len(photostim_trial_in_non_ignore)}, {len(photostim_trial_in_non_ignore) / len(non_ignore_trial):.2%})')
+        ax_fit_photostim.set(title=ax_fit_photostim.get_title() + f'\nphotostim trials (n={len(photostim_idx)}, {len(photostim_idx) / len(choice):.2%})')
         ax_fit_photostim.set(yticks=[], ylabel='')
 
-        data_photostim_next, Y_photostim_next = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_trial_in_non_ignore + 1)
-        logistic_reg_photostim_next = descriptive_analysis.logistic_regression_bootstrap(data_photostim_next, Y_photostim_next, n_bootstrap=1000, Cs=20)
+        data_photostim_next, Y_photostim_next = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_idx + 1)
+        logistic_reg_photostim_next = descriptive_analysis.logistic_regression_bootstrap(data_photostim_next, Y_photostim_next, n_bootstrap=1000, n_samplesize=n_samplesize, Cs=20)
         #  descriptive_analysis.plot_logistic_regression(logistic_reg_photostim_next)
         
-        data_photostim_next5, Y_photostim_next5 = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_trial_in_non_ignore + 5)
-        logistic_reg_photostim_next5 = descriptive_analysis.logistic_regression_bootstrap(data_photostim_next5, Y_photostim_next5, n_bootstrap=1000, Cs=20)
+        data_photostim_next5, Y_photostim_next5 = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_idx + 5)
+        logistic_reg_photostim_next5 = descriptive_analysis.logistic_regression_bootstrap(data_photostim_next5, Y_photostim_next5, n_bootstrap=1000, n_samplesize=n_samplesize, Cs=20)
         
         descriptive_analysis.plot_logistic_compare([logistic_reg_ctrl, logistic_reg_photostim, logistic_reg_photostim_next, logistic_reg_photostim_next5], 
                                                    labels=['ctrl', 'photostim', 'photostim_next', 'photostim_5_later'], 
@@ -653,7 +644,7 @@ def plot_session_logistic(key, ax=None):
     
         ax.remove()
     
-        return [ax_fit_ctrl, ax_fit_photostim, ax_compare]
+        return [logistic_reg_ctrl, logistic_reg_photostim, logistic_reg_photostim_next, logistic_reg_photostim_next5]
     
     
     
@@ -680,13 +671,13 @@ def plot_session_wsls(key, ax=None):
         # Get control and photostim trials (non-ignored only)
         non_ignore_trial = (experiment.BehaviorTrial & key & 'outcome != "ignore"').fetch('trial')
         photostim_trial = (experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"')).fetch('trial')
-        photostim_trial_in_non_ignore = np.nonzero(np.in1d(non_ignore_trial, photostim_trial))[0]   # np.searchsorted(non_ignore_trial, photostim_trial)
-        ctrl_trial_in_non_ignore = np.nonzero(~np.in1d(non_ignore_trial, photostim_trial))[0] 
+        photostim_idx = np.nonzero(np.in1d(non_ignore_trial, photostim_trial))[0]   # np.searchsorted(non_ignore_trial, photostim_trial)
+        ctrl_idx = np.nonzero(~np.in1d(non_ignore_trial, photostim_trial))[0] 
          
         # Get wsls separately
-        p_wsls_ctrl = descriptive_analysis.win_stay_lose_shift(choice, reward, selected_trial_idx=ctrl_trial_in_non_ignore)
-        p_wsls_photostim = descriptive_analysis.win_stay_lose_shift(choice, reward, selected_trial_idx=photostim_trial_in_non_ignore)
-        p_wsls_photostim_next = descriptive_analysis.win_stay_lose_shift(choice, reward, selected_trial_idx=photostim_trial_in_non_ignore + 1)
+        p_wsls_ctrl = descriptive_analysis.win_stay_lose_shift(choice, reward, selected_trial_idx=ctrl_idx)
+        p_wsls_photostim = descriptive_analysis.win_stay_lose_shift(choice, reward, selected_trial_idx=photostim_idx)
+        p_wsls_photostim_next = descriptive_analysis.win_stay_lose_shift(choice, reward, selected_trial_idx=photostim_idx + 1)
 
         descriptive_analysis.plot_wsls([p_wsls_ctrl, p_wsls_photostim, p_wsls_photostim_next], 
                                             edgecolors=['None', 'deepskyblue', 'skyblue'], 

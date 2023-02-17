@@ -982,7 +982,10 @@ def plot_lick_psth(sess_key=dict(subject_id=616134, session=17),
     plt.show()
     
     #%%
-     
+    
+    
+def plot_sessions_finished_ratio():
+    pass
     
 
 def analyze_runlength(result_path = "..\\results\\model_comparison\\", combine_prefix = 'model_comparison_15_', 
