@@ -1,8 +1,9 @@
 import datajoint as dj
 import numpy as np
 import matplotlib.pyplot as plt
+import pathlib
 
-from . import experiment, ephys, foraging_analysis, foraging_model, util
+from . import experiment, ephys, foraging_analysis, foraging_model, util, report
 from . import get_schema_name, create_schema_settings
 from .plot import foraging_model_plot
 from .model.bandit_model_comparison import BanditModelComparison
@@ -19,6 +20,9 @@ Han, Feb 2023
 
 schema = dj.schema(get_schema_name('foraging_analysis_and_export'), **create_schema_settings)
 
+
+report_cfg = dj.config['stores']['report_store']
+store_stage = pathlib.Path(report_cfg['stage'])
     
 @schema
 class SessionLogisticRegression(dj.Computed):
@@ -68,10 +72,22 @@ class SessionLogisticRegression(dj.Computed):
             self.insert({**key,
                          'trial_group': trial_group,
                          **row} for row in rows)
+        
         # Save figures
+        water_res_num, sess_date = report.get_wr_sessdatetime(key)
+        sess_dir = store_stage / water_res_num
+        sess_dir.mkdir(parents=True, exist_ok=True)
+        
+        fn_prefix = f'{water_res_num}_{sess_date.split("_")[0]}_{key["session"]}_'
+
         fig.suptitle(util._get_sess_info(key))
             
-            
+        fig_dict = report.save_figs(
+            (fig,),
+            ('logistic_regression',),
+            sess_dir, fn_prefix)   
+
+
   
 def decode_logistic_reg(reg):
     mapper = {'b_RewC': 'RewC', 'b_UnrC': 'UnrC', 'b_C': 'C'}    

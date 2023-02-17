@@ -128,8 +128,15 @@ def logistic_regression(data, Y, solver='liblinear', penalty='l2', C=1, test_siz
     
     # Do training
     # x_train, x_test, y_train, y_test = train_test_split(data, Y, test_size=test_size)
-    logistic_reg = LogisticRegression(solver=solver, fit_intercept=True, penalty=penalty, C=C, n_jobs=1)
+    logistic_reg = LogisticRegression(solver=solver, fit_intercept=True, penalty=penalty, C=C)
+
+    # if sum(Y == 1) == 1 or sum(Y == -1) == 1:
+    #     logistic_reg_cv.coef_ = np.zeros((1, data.shape[1]))
+    #     logistic_reg_cv.intercept_ = 10 * np.sign(np.median(Y))   # If all left, set bias = 10 and other parameters 0
+    #     logistic_reg_cv.C_ = np.nan
+    # else:
     logistic_reg.fit(data, Y)
+
     output = np.concatenate([logistic_reg.coef_[0], logistic_reg.intercept_])
     
     (logistic_reg.b_RewC, 
@@ -155,8 +162,15 @@ def logistic_regression_CV(data, Y, Cs=10, cv=10, solver='liblinear', penalty='l
     
     Han 20230208
     '''
+
     # Do cross validation, try different Cs
     logistic_reg_cv = LogisticRegressionCV(solver=solver, fit_intercept=True, penalty=penalty, Cs=Cs, cv=cv, n_jobs=n_jobs)
+    
+    # if sum(Y == 1) == 1 or sum(Y == -1) == 1:
+    #     logistic_reg_cv.coef_ = np.zeros((1, data.shape[1]))
+    #     logistic_reg_cv.intercept_ = 10 * np.sign(np.median(Y))   # If all left, set bias = 10 and other parameters 0
+    #     logistic_reg_cv.C_ = np.nan
+    # else:
     logistic_reg_cv.fit(data, Y)
 
     return logistic_reg_cv
