@@ -544,7 +544,7 @@ class PhotostimForagingTrial(dj.Imported):
 
 
 @schema
-class PhotostimForagingLocation(dj.Manual):   
+class PhotostimForagingLocation(dj.Imported):   
     definition = """
     -> Session
     side:     varchar(10)   # left or right, typically
@@ -559,24 +559,29 @@ class PhotostimForagingLocation(dj.Manual):
                     'MD': [f'XY_{x:02}' for x in (16, 19)],
                    }
 
-    key_source = dj.U('subject_id', 'session') & PhotostimForagingTrial
+    @classmethod
+    def load_photostim_foraging_location(cls):  # Quick solution for adding this meta data
+        for key in ((dj.U('subject_id', 'session') & PhotostimForagingTrial)).fetch(as_dict=True):
+            if len(cls & key):
+                continue
 
-    def make(self, key):  # Quick solution for adding this meta data
-    
-        h2o = (lab.WaterRestriction & key).fetch('water_restriction_number')
-        location = None
+            h2o = (lab.WaterRestriction & key).fetch('water_restriction_number')
+            location = None
 
-        for loc, h2os in cls.manual_input.items():
-            if h2o in h2os:
-                location = loc
-                break
+            for loc, h2os in cls.manual_input.items():
+                if h2o in h2os:
+                    location = loc
+                    break
 
-        if location is None:
-            print(f'Photostim location for {h2o} not found!')
-            return
-        else:
-            for side in ['left', 'right']:
-                cls.insert1(dict(**key, side=side, location=location))
+            if location is None:
+                print(f'Photostim location for {h2o} not found!')
+                continue
+            else:
+                for side in ['left', 'right']:
+                    cls.insert1(dict(**key, side=side, location=location),
+                                     allow_direct_insert=True)
+                    print(f'{key}: {location} inserted')
+
 
 
 @schema
