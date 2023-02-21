@@ -62,7 +62,7 @@ def show_progress(rounds=range(len(my_tables))):
             total_in_current_key_source = len(table.key_source.proj())
             print(f"{f'{table.__name__}: ':<30}"
                   f"{f'{finished_in_current_key_source} / {total_in_current_key_source} = {finished_in_current_key_source / total_in_current_key_source:.3%},':<40}"
-                  f"{f' to do: {total_in_current_key_source - finished_in_current_key_source}': <10},",
+                  f"{f' to do: {total_in_current_key_source - finished_in_current_key_source}':<10}, ",
                   flush=True, end='')
             
             try:
