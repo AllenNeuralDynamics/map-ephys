@@ -120,7 +120,7 @@ class RepeatTimer(Timer):
             except Exception as e:
                 print(traceback.format_exc())
             
-def run_with_progress(cores=None, run_count=1, print_interval=10):
+def run_with_progress(cores=None, run_count=1, print_interval=60):
     
     if cores is None:
         cores = int(mp.cpu_count()) - 1  # Auto core number selection
@@ -167,6 +167,6 @@ if __name__ == '__main__' and use_ray == False:  # This is a workaround for mp.a
     # shell.logsetup('INFO')
     # shell.ingest_foraging_behavior()
     
-    run_with_progress()
+    run_with_progress(cores=None, run_count=-1, print_interval=60)
     
  

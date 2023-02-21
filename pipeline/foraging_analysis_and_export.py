@@ -45,7 +45,7 @@ class SessionLogisticRegression(dj.Computed):
         if_photostim = len((experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"'))) > 10
         
         if not if_photostim:
-            fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
             trial_groups = ['all_no_stim']
         else:
             fig, ax = plt.subplots(1, 1, figsize=(10, 20))
@@ -75,7 +75,7 @@ class SessionLogisticRegression(dj.Computed):
         
         # Save figures
         water_res_num, sess_date = report.get_wr_sessdatetime(key)
-        sess_dir = store_stage / water_res_num
+        sess_dir = store_stage / 'all_sessions' / 'logistic_regression' / water_res_num
         sess_dir.mkdir(parents=True, exist_ok=True)
         
         fn_prefix = f'{water_res_num}_{sess_date.split("_")[0]}_{key["session"]}_'
@@ -85,9 +85,28 @@ class SessionLogisticRegression(dj.Computed):
         fig_dict = report.save_figs(
             (fig,),
             ('logistic_regression',),
-            sess_dir, fn_prefix)   
+            sess_dir, fn_prefix)
+        
+        SessionLogisticRegressionReport.insert1({**key, **fig_dict}, 
+                                                ignore_extra_fields=True,
+                                                allow_direct_insert=True)
 
-
+@schema
+class SessionLogisticRegressionReport(dj.Computed):
+    definition = """
+    -> experiment.Session
+    ---
+    logistic_regression: filepath@report_store
+    """    
+    
+    def make(self, key):
+        """
+        to remove the figures: 
+        1. foraging_analysis_and_export.SessionLogisticRegressionReport.delete()
+        2. (foraging_analysis_and_export.schema.external['report_store'] & 'filepath LIKE "%logistic%"').delete(delete_external_files=True)
+        """
+        pass
+    
   
 def decode_logistic_reg(reg):
     mapper = {'b_RewC': 'RewC', 'b_UnrC': 'UnrC', 'b_C': 'C'}    
