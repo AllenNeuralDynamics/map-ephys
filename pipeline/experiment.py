@@ -542,6 +542,43 @@ class PhotostimForagingTrial(dj.Imported):
     bpod_timer_offset=null:  decimal(8, 4)       # From bpod protocol
     """    
 
+
+@schema
+class PhotostimForagingLocation(dj.Manual):   
+    definition = """
+    -> Session
+    side:     varchar(10)   # left or right, typically
+    ---
+    location:  varchar(30)   # PL, MD, PALv2MD, etc.
+    """
+
+    manual_input = {'PL': [f'HH{x:02}' for x in (14, 15, 16, 18)] + 
+                          [f'KH_FB{x:02}' for x in (12, 23, 24)] + 
+                          [f'XY_{x:02}' for x in (8, 9, 10)],
+                    'PALv2MD': [f'XY_{x:02}' for x in (11, 12)],
+                    'MD': [f'XY_{x:02}' for x in (16, 19)],
+                   }
+
+    key_source = dj.U('subject_id', 'session') & PhotostimForagingTrial
+
+    def make(self, key):  # Quick solution for adding this meta data
+    
+        h2o = (lab.WaterRestriction & key).fetch('water_restriction_number')
+        location = None
+
+        for loc, h2os in cls.manual_input.items():
+            if h2o in h2os:
+                location = loc
+                break
+
+        if location is None:
+            print(f'Photostim location for {h2o} not found!')
+            return
+        else:
+            for side in ['left', 'right']:
+                cls.insert1(dict(**key, side=side, location=location))
+
+
 @schema
 class Period(dj.Lookup):
     definition = """  # time period between any two TrialEvent (eg the delay period is between delay and go)
