@@ -6,6 +6,8 @@ from tqdm import tqdm
 from pipeline import lab, experiment, ephys, histology, psth, ccf, psth_foraging
 from pipeline.report import get_wr_sessdatetime
 
+report_cfg = dj.config['stores']['report_store']
+store_stage = pathlib.Path(report_cfg['stage'])
         
 def export_foraging_behavior():
     ''' 
@@ -27,46 +29,57 @@ def export_foraging_behavior():
     from pipeline import foraging_analysis, util
     from pipeline.plot import foraging_model_plot  
     import matplotlib.pyplot as plt
-    
+
+    export_path = pathlib.Path('/root/capsule/data/behavior_export')
 
     # %%
-    foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol = 100') * lab.WaterRestriction  # Two-lickport foraging
+    foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)') * lab.WaterRestriction  # Two-lickport foraging
     
     all_foraging_subject = (dj.U('water_restriction_number') & foraging_sessions).fetch('KEY')
+
     for subject_key in all_foraging_subject:
         sessions_this_subject = (foraging_sessions & subject_key).fetch('KEY')
         h2o = (lab.WaterRestriction & subject_key).fetch1('water_restriction_number')
         
-        # Skip if npy already exists
-        if pathlib.Path(f'./report/behavior/{h2o}.npy').exists():
-            print(f'Skip {h2o} because .npy already exists...')
-            continue        
-        
-        pathlib.Path(f'./report/behavior/{h2o}/').mkdir(parents=True, exist_ok=True)
-        this_subject = dict()
+        pathlib.Path(f'{export_path}/{h2o}/').mkdir(parents=True, exist_ok=True)
+        # this_subject = dict()
             
         for session_key in sessions_this_subject:
+            
+            datestr = (experiment.Session & session_key).fetch1('session_date').strftime(r"%Y%m%d")
+            file_prefix = f'{h2o}_{datestr}_{session_key["session"]}'
+            file_full_path = export_path / h2o /f'{file_prefix}.npy'
+
+            # Skip if npy already exists
+            if file_full_path.exists():
+                print(f'Skip {h2o} because .npy already exists...')
+                continue        
+
             choice_history, reward_history, _ , p_reward, _ = get_session_history(session_key, remove_ignored=False)
-            try:
-                trial_num, foraging_efficiency = (foraging_analysis.SessionStats & session_key).fetch1('session_total_trial_num', 'session_foraging_eff_optimal')
-            except:
-                print(f'Error in fetching foraging_efficiency for {h2o}, {session_key}!!')
-                continue
+            # try:
+            #     trial_num, foraging_efficiency = (foraging_analysis.SessionStats & session_key).fetch1('session_total_trial_num', 'session_foraging_eff_optimal')
+            # except:
+            #     print(f'Error in fetching foraging_efficiency for {h2o}, {session_key}!!')
+            #     continue
             
-            fig, ax = foraging_model_plot.plot_session_lightweight([choice_history, reward_history, p_reward])  # Include ignored trials
-            # foraging_model_plot.plot_session_fitted_choice(session_key)    
-            ax.text(0, 1.1, util._get_sess_info(session_key), fontsize=10, transform=ax.transAxes)
-            fig.savefig(f'./report/behavior/{h2o}/{h2o}_Session_{session_key["session"]:02}')
+            # fig, ax = foraging_model_plot.plot_session_lightweight([choice_history, reward_history, p_reward])  # Include ignored trials
+            # # foraging_model_plot.plot_session_fitted_choice(session_key)    
+            # ax.text(0, 1.1, util._get_sess_info(session_key), fontsize=10, transform=ax.transAxes)
+            # fig.savefig(f'./report/behavior/{h2o}/{h2o}_Session_{session_key["session"]:02}')
             
-            this_subject[session_key["session"]] = {'choice_history': choice_history,
-                                                    'reward_history': reward_history,
+            this_subject = {'choice_history': choice_history[0],
+                                                    'reward_history': np.sum(reward_history, axis=0),
                                                     'p_reward': p_reward,
-                                                    'trial_num': trial_num,
-                                                    'foraging_efficiency': foraging_efficiency}
+                                                    # 'trial_num': trial_num,
+                                                    # 'foraging_efficiency': foraging_efficiency
+                                                    }
+            
+            np.save(file_full_path, this_subject, allow_pickle=True)
+            
             plt.close()
             print(f'Done {h2o}, {session_key}')
            
-        np.save(f'./report/behavior/{h2o}.npy', this_subject, allow_pickle=True)
+            
         
 
 def write_to_activity_viewer_foraging(insert_keys, output_dir='./'):
