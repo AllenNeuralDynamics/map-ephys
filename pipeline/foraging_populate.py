@@ -7,6 +7,8 @@ sys.path.append('/root/capsule/code')
 
 from pipeline import (lab, get_schema_name, foraging_analysis, report, psth_foraging, 
                       foraging_model, ephys, experiment, foraging_analysis_and_export)
+from pipeline.export import to_s3
+
 import multiprocessing as mp
 from threading import Timer, Thread
 
@@ -104,6 +106,9 @@ def populatemytables(pool = None, cores = 9, all_rounds = range(len(my_tables)))
     # Show progress
     # show_progress(all_rounds)
 
+def export_to_s3():
+    to_s3.export_df_foraging_sessions()
+
 def clear_jobs():
     for schema in [foraging_model, foraging_analysis, psth_foraging, report, ephys]:
         s = schema.schema
@@ -136,15 +141,18 @@ def run_with_progress(cores=None, run_count=1, print_interval=60):
     #                       kwargs=dict(pool=pool, cores=cores, all_rounds=range(len(my_tables)))
     # ) 
     
-    show_progress()
-    clear_jobs()
-    t2 = RepeatTimer(print_interval, show_progress)
-    t3 = RepeatTimer(3600 * 24, clear_jobs)   # clear jobs each day
-    
-    # t1.start()
-    t2.start()
-    t3.start()
-    
+    back_ground_tasks = [[export_to_s3, 3600 * 24],
+                         [show_progress, print_interval],
+                         [clear_jobs, 3600 * 24],
+                         ]    # (function, interval in s)
+
+    tasks = []
+    for task, interval in back_ground_tasks:  
+        task()          
+        tasks.append(RepeatTimer(interval, task))
+
+    [task.start() for task in tasks]
+
     while run_count:
         try:
             run_count -= 1
@@ -152,9 +160,7 @@ def run_with_progress(cores=None, run_count=1, print_interval=60):
         except:
             pass
     
-    # t1.join()
-    t2.join()
-    t3.join()
+    [task.join() for task in tasks]
     
     if pool != '':
         pool.close()
