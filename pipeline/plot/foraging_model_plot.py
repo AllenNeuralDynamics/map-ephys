@@ -120,7 +120,8 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
                                model_comparison_idx=0, sort='aic',
                                first_n=1, last_n=0,
                                remove_ignored=True, smooth_factor=5,
-                               ax=None):
+                               ax=None,
+                               vertical=False):
 
     """
     Plot actual and fitted choice trace of a specified session
@@ -135,7 +136,8 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
     """
 
     # Fetch actual data
-    choice_history, reward_history, iti, p_reward, _ = foraging_model.get_session_history(sess_key, remove_ignored=remove_ignored)
+    choice_history, reward_history, iti, p_reward, q_trial = foraging_model.get_session_history(sess_key, 
+                                                                                                remove_ignored=remove_ignored)
     n_trials = np.shape(choice_history)[1]
 
     # Fetch fitted data
@@ -145,11 +147,29 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
     else:  # only plot specified model_id
         results_to_plot = results = _get_specified_model_fitting_results(sess_key, specified_model_ids)
 
+    # Fetch photostim data
+    q_photostim = experiment.PhotostimForagingTrial & sess_key
+    if remove_ignored:
+        q_photostim &= experiment.BehaviorTrial & sess_key & 'outcome != "ignore"'
         
+    photostim = q_photostim.fetch('trial', 'power', 'bpod_timer_align_to') if len(q_photostim) else None
+    if remove_ignored:
+        photostim[0] = np.searchsorted(q_trial.fetch('trial'), photostim[0])
+        
+    # add valid trial start and end for engagement control
+    if not remove_ignored and len(foraging_analysis.SessionEngagementControl & sess_key):
+        valid_range = (foraging_analysis.SessionEngagementControl & sess_key).fetch1('start_trial', 'end_trial')
+    else:
+        valid_range = None
+    
     # -- Plot actual choice and reward history --
     with sns.plotting_context("notebook", font_scale=1, rc={'style': 'ticks'}):
-        fig, ax = plot_session_lightweight([choice_history, reward_history, p_reward], smooth_factor=smooth_factor, ax=ax)
-
+        fig, ax = plot_session_lightweight([choice_history, reward_history, p_reward], 
+                                           photostim=photostim,
+                                           valid_range=valid_range,
+                                           smooth_factor=smooth_factor, ax=ax,
+                                           vertical=vertical)
+    
         try:
             # -- Plot fitted choice probability etc. --
             model_str =  (f'Model comparison: {(foraging_model.ModelComparison & q_model_comparison).fetch1("desc")}'
@@ -160,14 +180,13 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
             for idx, result in results_to_plot.iterrows():
                 trial, right_choice_prob = (foraging_model.FittedSessionModel.TrialLatentVariable
                                     & dict(result) & 'water_port="right"').fetch('trial', 'choice_prob')
-                ax.plot(np.arange(0, n_trials) if remove_ignored else trial, right_choice_prob, linewidth=max(1.5 - 0.3 * idx, 0.2),
+                ax[0].plot(np.arange(0, n_trials) if remove_ignored else trial, right_choice_prob, linewidth=max(1.2 - 0.3 * idx, 0.2),
                         label=f'{idx + 1}: <{result.model_id}>'
                                 f'{result.model_notation}\n'
                                 f'({result.fitted_param})')
         except:
             pass
                 
-        #TODO photostim trials
 
         #TODO Plot session starts
         # if len(trial_numbers) > 1:  # More than one sessions
@@ -179,9 +198,9 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
         #         except:
         #             pass
 
-    ax.legend(fontsize=5, loc='upper left', bbox_to_anchor=(1, 1.3))
-    ax.text(0, 1.1, util._get_sess_info(sess_key), fontsize=10, transform=ax.transAxes)
-    ax.set_xlabel('Trial number (finished trials only)' if remove_ignored else 'Original trial number')
+    # ax[0].legend(fontsize=6, loc='upper left', bbox_to_anchor=(0.6, 1.3), ncol=2)
+    ax[0].text(0, 1.1, util._get_sess_info(sess_key), fontsize=10, transform=ax[0].transAxes)
+    ax[1].set_xlabel('Trial number (finished trials only)' if remove_ignored else 'Original trial number')
 
     # fig.tight_layout()
     # sns.set()
@@ -189,9 +208,31 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
     return ax
 
 
-def plot_session_lightweight(data, fitted_data=None, smooth_factor=5, base_color='y', ax=None, vertical=False):
+def plot_session_lightweight(data,   # choice_history, reward_history, p_reward
+                             fitted_data=None, 
+                             photostim=None,    # trial, power, s_type
+                             valid_range=None,
+                             smooth_factor=5, 
+                             base_color='y', 
+                             ax=None, 
+                             vertical=False):
     # sns.reset_orig()
+    
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(12, 3) if not vertical else (3, 12), dpi=200)
+        plt.subplots_adjust(left=0.1, right=0.8, bottom=0.05, top=0.8)
 
+    if not vertical:
+        gs = ax._subplotspec.subgridspec(2, 1, height_ratios=[1, 0.2], hspace=0.1)
+        ax_1 = ax.get_figure().add_subplot(gs[0, 0])
+        ax_2 = ax.get_figure().add_subplot(gs[1, 0])
+        ax_1.get_shared_x_axes().join(ax_1, ax_2)
+    else:
+        gs = ax._subplotspec.subgridspec(1, 2, width_ratios=[0.2, 1], wspace=0.1)
+        ax_1 = ax.get_figure().add_subplot(gs[0, 1])
+        ax_2 = ax.get_figure().add_subplot(gs[0, 0])
+        ax_1.get_shared_y_axes().join(ax_1, ax_2)
+        
     with sns.plotting_context("notebook", font_scale=1):
 
         choice_history, reward_history, p_reward = data
@@ -206,61 +247,111 @@ def plot_session_lightweight(data, fitted_data=None, smooth_factor=5, base_color
         unrewarded_trials = np.logical_not(np.logical_or(rewarded_trials, ignored_trials))
 
         # == Choice trace ==
-        fig = None
-        if ax is None:  
-            fig = plt.figure(figsize=(8, 3), dpi=200)
-            ax = fig.add_subplot(111)
-            fig.subplots_adjust(left=0.1, right=0.8, bottom=0.05, top=0.7)
-
         # Rewarded trials
         xx = np.nonzero(rewarded_trials)[0] + 1
         yy = 0.5 + (choice_history[0, rewarded_trials] - 0.5) * 1.4
-        ax.plot(*(xx, yy) if not vertical else [*(yy, xx)], 
+        ax_1.plot(*(xx, yy) if not vertical else [*(yy, xx)], 
                 '|' if not vertical else '_', color='black', markersize=10, markeredgewidth=2)
 
         # Unrewarded trials
         xx = np.nonzero(unrewarded_trials)[0] + 1
         yy = 0.5 + (choice_history[0, unrewarded_trials] - 0.5) * 1.4
-        ax.plot(*(xx, yy) if not vertical else [*(yy, xx)],
+        ax_1.plot(*(xx, yy) if not vertical else [*(yy, xx)],
                 '|' if not vertical else '_', color='gray', markersize=6, markeredgewidth=1)
 
         # Ignored trials
         xx = np.nonzero(ignored_trials)[0] + 1
         yy = [1.1] * sum(ignored_trials)
-        ax.plot(*(xx, yy) if not vertical else [*(yy, xx)],
+        ax_1.plot(*(xx, yy) if not vertical else [*(yy, xx)],
                 'x', color='red', markersize=2, markeredgewidth=0.5, label='ignored')
 
         # Base probability
         xx = np.arange(0, n_trials) + 1
         yy = p_reward_fraction
-        ax.plot(*(xx, yy) if not vertical else [*(yy, xx)],
+        ax_1.plot(*(xx, yy) if not vertical else [*(yy, xx)],
                 color=base_color, label='base rew. prob.', lw=1.5)
 
         # Smoothed choice history
-        y = moving_average(choice_history, smooth_factor)
+        y = moving_average(choice_history, smooth_factor) / moving_average(~np.isnan(choice_history), smooth_factor)
         x = np.arange(0, len(y)) + int(smooth_factor / 2) + 1
-        ax.plot(*(x, y) if not vertical else [*(y, x)],
+        ax_1.plot(*(x, y) if not vertical else [*(y, x)],
                 linewidth=1.5, color='black', label='choice (smooth = %g)' % smooth_factor)
-
-        # For each session, if any
+        
+        # finished ratio
+        if np.sum(np.isnan(choice_history)):
+            x = np.arange(0, len(y)) + int(smooth_factor / 2) + 1
+            y = moving_average(~np.isnan(choice_history), smooth_factor)
+            ax_1.plot(*(x, y) if not vertical else [*(y, x)],
+                    linewidth=0.8, color='m', alpha=1,
+                    label='finished (smooth = %g)' % smooth_factor)
+             
+        # add valid ranage
+        if valid_range is not None:
+            add_range = ax_1.axhline if vertical else ax_1.axvline
+            add_range(valid_range[0], color='m', ls='--', lw=1, label='motivation good')
+            add_range(valid_range[1], color='m', ls='--', lw=1)
+                
+        # For each session, if any fitted_data
         if fitted_data is not None:
-            ax.plot(np.arange(0, n_trials), fitted_data[1, :], linewidth=1.5, label='model')
+            ax_1.plot(np.arange(0, n_trials), fitted_data[1, :], linewidth=1.5, label='model')
+        
+        # == photo stim ==
+        if photostim is not None:
+            plot_spec_photostim = { 'after iti start': 'cyan',  
+                                    'before go cue': 'cyan',
+                                    'after go cue': 'green',
+                                    'whole trial': 'blue'}
+            
+            trial, power, s_type = photostim
+            x = trial
+            y = np.ones_like(trial) + 0.4
+            scatter = ax_1.scatter(
+                                *(x, y) if not vertical else [*(y, x)],
+                                s=power.astype(float)*2,
+                                edgecolors=[plot_spec_photostim[t] for t in s_type]
+                                  if any(s_type) else 'darkcyan',
+                                marker='v' if not vertical else '<',
+                                facecolors='none',
+                                linewidth=0.5,
+                                label='photostim')
 
-        ax.legend(fontsize=5, loc='upper left', bbox_to_anchor=(1, 1.3))
+        # p_reward    
+        xx = np.arange(0, n_trials) + 1
+        ll = p_reward[0, :]
+        rr = p_reward[1, :]
+        ax_2.plot(*(xx, rr) if not vertical else [*(rr, xx)],
+                color='b', label='p_r', lw=1)
+        ax_2.plot(*(xx, ll) if not vertical else [*(ll, xx)],
+                color='r', label='p_l', lw=1)
+        ax_2.legend(fontsize=5, ncol=1, loc='upper left', bbox_to_anchor=(0, 1))
         
         if not vertical:
-            ax.set_yticks([0, 1])
-            ax.set_yticklabels(['Left', 'Right'])
+            ax_1.set_yticks([0, 1])
+            ax_1.set_yticklabels(['Left', 'Right'])
+            ax_1.legend(fontsize=6, loc='upper left', bbox_to_anchor=(0.6, 1.3), ncol=2)
+            ax_1.set_xticks([])
+
+            sns.despine(trim=True, bottom=True, ax=ax_1)
+            sns.despine(trim=True, ax=ax_2)
         else:
-            ax.set_xticks([0, 1])
-            ax.set_xticklabels(['Left', 'Right'])
+            ax_1.set_xticks([0, 1])
+            ax_1.set_xticklabels(['Left', 'Right'])
+            ax_1.invert_yaxis()
+            ax_1.legend(fontsize=6, loc='upper left', bbox_to_anchor=(0, 1.05), ncol=2)
+            ax_1.set_yticks([])
+
+            sns.despine(trim=True, left=True, ax=ax_1)
+            sns.despine(trim=True, ax=ax_2)
+
+
+        # ax_2.set(ylim=(0, 1))
     
     # ax.set_xlim(0,300)
 
     # fig.tight_layout()
-    sns.despine(trim=True, ax=ax)
+    ax.remove()
 
-    return fig, ax
+    return fig, [ax_1, ax_2]
 
 
 def plot_mouse_fitting_results(subject_id, model_comparison_idx=0, sort='aic',

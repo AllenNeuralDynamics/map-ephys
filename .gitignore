@@ -122,3 +122,4 @@ report/*
 
 # data
 data/*
+.vscode/*
