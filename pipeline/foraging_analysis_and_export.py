@@ -200,6 +200,40 @@ class SessionLickPSTHReport(dj.Computed):
         self.insert1({**key, **fig_dict}, 
                     ignore_extra_fields=True,
                     allow_direct_insert=True)
+        
+
+@schema
+class SessionWSLSReport(dj.Computed):
+    definition = """
+    -> foraging_analysis.SessionTaskProtocol    # Foraging sessions
+    ---
+    wsls: filepath@report_store
+    """
+    
+    key_source = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)')
+    
+    def make(self, key):
+        # generate figure
+        ax = foraging_model_plot.plot_session_wsls(key)
+        fig = ax.get_figure()
+        
+        # save figures
+        water_res_num, sess_date = report.get_wr_sessdatetime(key)
+        sess_dir = store_stage / 'all_sessions' / 'wsls' / water_res_num
+        sess_dir.mkdir(parents=True, exist_ok=True)
+        
+        fn_prefix = f'{water_res_num}_{sess_date.split("_")[0]}_{key["session"]}_' \
+            
+        fig_dict = report.save_figs(
+            (fig,),
+            ('wsls',),
+            sess_dir, fn_prefix)
+        
+        plt.close('all')
+
+        self.insert1({**key, **fig_dict}, 
+                    ignore_extra_fields=True,
+                    allow_direct_insert=True)
     
     
 # -------- Helpers ----------
