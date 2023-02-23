@@ -167,14 +167,14 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
     
     if if_Q:
         if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(17, 4), dpi=200)
+            fig, ax = plt.subplots(1, 1, figsize=(17, 5), dpi=200)
             plt.subplots_adjust(left=0.1, right=0.8, bottom=0.05, top=0.8)
         gs = ax._subplotspec.subgridspec(2, 1, height_ratios=[5, 1], hspace=0.1)
         ax_lightweight = ax.get_figure().add_subplot(gs[0, 0])
         ax_Q = ax.get_figure().add_subplot(gs[1, 0])
     else:
         if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(17, 3), dpi=200)
+            fig, ax = plt.subplots(1, 1, figsize=(17, 5), dpi=200)
             plt.subplots_adjust(left=0.1, right=0.8, bottom=0.05, top=0.8)
             ax_lightweight = ax
 
