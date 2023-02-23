@@ -167,19 +167,20 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
     
     if if_Q:
         if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(15, 4), dpi=200)
+            fig, ax = plt.subplots(1, 1, figsize=(17, 4), dpi=200)
             plt.subplots_adjust(left=0.1, right=0.8, bottom=0.05, top=0.8)
         gs = ax._subplotspec.subgridspec(2, 1, height_ratios=[5, 1], hspace=0.1)
         ax_lightweight = ax.get_figure().add_subplot(gs[0, 0])
         ax_Q = ax.get_figure().add_subplot(gs[1, 0])
     else:
-        fig, ax = plt.subplots(1, 1, figsize=(15, 3), dpi=200)
-        plt.subplots_adjust(left=0.1, right=0.8, bottom=0.05, top=0.8)
-        ax_lightweight = ax
+        if ax is None:
+            fig, ax = plt.subplots(1, 1, figsize=(17, 3), dpi=200)
+            plt.subplots_adjust(left=0.1, right=0.8, bottom=0.05, top=0.8)
+            ax_lightweight = ax
 
     # -- Plot actual choice and reward history --
     with sns.plotting_context("notebook", font_scale=1, rc={'style': 'ticks'}):
-        fig, axs_choice = plot_session_lightweight([choice_history, reward_history, p_reward], 
+        _, axs_choice = plot_session_lightweight([choice_history, reward_history, p_reward], 
                                            photostim=photostim,
                                            valid_range=valid_range,
                                            smooth_factor=smooth_factor, 
@@ -200,7 +201,7 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
                     
                     axs_choice[0].plot(np.arange(0, n_trials) if remove_ignored else trial, 
                             right_choice_prob, linewidth=max(1.2 - 0.3 * idx, 0.2),
-                            label=f'{idx + 1}: <{result.model_id}>'
+                            label=f'{"best_" if specified_model_ids is None else ""}{idx + 1}: <{result.model_id}>'
                                     f'{result.model_notation}\n'
                                     f'({result.fitted_param})')
                     
@@ -227,7 +228,7 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
         #         except:
         #             pass
 
-    axs_choice[0].legend(fontsize=6, loc='upper left', bbox_to_anchor=(0.4, 1.4), ncol=3)
+    axs_choice[0].legend(fontsize=9, loc='upper left', bbox_to_anchor=(0.4, 1.4), ncol=3)
     axs_choice[0].text(0, 1.1, util._get_sess_info(sess_key), fontsize=10, transform=axs_choice[0].transAxes)
     
     if if_Q:
@@ -238,9 +239,9 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
         # fig.tight_layout()
         # sns.set()
         ax.remove()        
-        return [axs_choice[0], axs_choice[1], ax_Q]
+        return ax_Q.get_figure(), [*axs_choice, ax_Q], results_to_plot
     else:
-        return axs_choice
+        return axs_choice[0].get_figure(), axs_choice, results_to_plot
 
 
 def plot_session_lightweight(data,   # choice_history, reward_history, p_reward
