@@ -1,4 +1,4 @@
-datajoint==0.12.9
+datajoint==0.13.8
 scipy	# build issue - see statsmodels
 globus-sdk
 tifffile
@@ -25,3 +25,4 @@ nwb-conversion-tools
 nwbinspector
 opencv-python
 dspca
+boto3

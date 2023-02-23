@@ -20,7 +20,6 @@ Han, Feb 2023
 
 schema = dj.schema(get_schema_name('foraging_analysis_and_export'), **create_schema_settings)
 
-
 report_cfg = dj.config['stores']['report_store']
 store_stage = pathlib.Path(report_cfg['stage'])
     
@@ -106,6 +105,68 @@ class SessionLogisticRegressionReport(dj.Computed):
         2. (foraging_analysis_and_export.schema.external['report_store'] & 'filepath LIKE "%logistic%"').delete(delete_external_files=True)
         """
         pass
+    
+
+@schema
+class SessionBehaviorFittedChoiceReport(dj.Computed):
+    definition = """
+    -> foraging_analysis.SessionTaskProtocol    # Foraging sessions
+    model_id:   int  # specific ids and None (best for each session)
+    ---
+    fitted_choice: filepath@report_store
+    """
+    
+    key_source = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)')
+    
+    def make(self, key):
+        model_to_plot = [None, 
+                         8,   # learning rate, e-greedy
+                        11,   # tau1, tau2, softmax
+                        14,   # Hattori2019, alpha_Rew, alpha_Unr, delta, softmax
+                        15,   # 8 + ck
+                        17,   # 11 + ck
+                        20,   # Hattori 2019 + CK
+                        21,   # Hattori 2019 + CK one trial
+                         ]
+        
+        for model_id in model_to_plot:
+            # generate figure
+            fig, _, model_plotted = foraging_model_plot.plot_session_fitted_choice(sess_key=key,
+                                                                                    specified_model_ids=model_id,
+                                                                                    model_comparison_idx=0, 
+                                                                                    sort='aic',
+                                                                                    first_n=1, last_n=0,
+                                                                                    remove_ignored=False, 
+                                                                                    smooth_factor=5,
+                                                                                    ax=None,
+                                                                                    vertical=False)
+            
+            model_id_plotted = model_plotted[2].iloc[0].model_id
+            
+            # Save figures
+            water_res_num, sess_date = report.get_wr_sessdatetime(key)
+            sess_dir = store_stage / 'all_sessions' / 'fitted_choice' / water_res_num
+            sess_dir.mkdir(parents=True, exist_ok=True)
+            
+            fn_prefix = f'{water_res_num}_{sess_date.split("_")[0]}_{key["session"]}' \
+                        f'_model_{"best_" if model_id is None else ""}{model_id_plotted}'
+                
+            fig_dict = report.save_figs(
+                (fig,),
+                ('fitted_choice',),
+                sess_dir, fn_prefix)
+            
+            plt.close('all')
+
+            self.insert1({**key, **fig_dict, 
+                          'model_id': None if model_id is None else ""}, 
+                        ignore_extra_fields=True,
+                        allow_direct_insert=True)
+
+        
+    
+    
+# -------- Helpers ----------
     
   
 def decode_logistic_reg(reg):

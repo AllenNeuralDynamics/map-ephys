@@ -12,8 +12,10 @@ local_cache_root = '/root/capsule/results/'
 
 
 
-def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.pkl'):
-    foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol >= 100').proj()
+def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.pkl'):   
+    # Currently good for datajoint==0.13.8
+    
+    foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)').proj()
     insertion_numbers = foraging_sessions.aggr(foraging_sessions * ephys.ProbeInsertion, ..., 
                                                     #   keep_all_rows=True, ephys_insertions='IF(COUNT(insertion_number), "yes", "no")')
                                                 keep_all_rows=True, ephys_ins='COUNT(insertion_number)')
@@ -90,7 +92,7 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
     # copy to s3
     res = upload_file(local_file_name, bucket, s3_file_name)
     if res:
-        print(f'file exported to {s3_file_name}, size = {size} MB')
+        print(f'file exported to {s3_file_name}, size = {size} MB, df_length = {len(df_sessions)}')
     else:
         print('Export error!')
     
