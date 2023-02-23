@@ -849,7 +849,8 @@ def session_licking_PSTH(key):
 def plot_lick_psth(sess_key=dict(subject_id=616134, session=17),
                    trial_event_to_align="go", 
                    other_trial_events={'laserLoff': ('None', '<'), 'laserLon': ('None', '<'), 'laserRoff': ('None', '>'), 'laserRon': ('None', '>')},
-                   use_actual_trial_num=True
+                   use_actual_trial_num=True,
+                   ax=None,
                    ):  # Plot all trial events of one specific session
     #%% 
     # sess_key = dict(subject_id=616134, session=19)pi
@@ -858,89 +859,7 @@ def plot_lick_psth(sess_key=dict(subject_id=616134, session=17),
     # use_actual_trial_num = False
     
     #--------------------------
-    def _do_plot(all_licks_to_align, first_lick_after_align):
-
-        sns.set(style="ticks", context="talk", font_scale=1)
-        sns.set_palette("muted")
-        fig = plt.figure(figsize=(12, 12))
-        gs = GridSpec(5, 10, wspace=1, hspace=0.4, bottom=0.07, top=0.95, left=0.2, right=0.9) 
-
-        ax1 = fig.add_subplot(gs[0:3, 3:])
-        ax2 = fig.add_subplot(gs[3, 3:])
-        ax3 = fig.add_subplot(gs[4, 3:])
-        ax_history = fig.add_subplot(gs[0:3, :3])
-        ax1.get_shared_x_axes().join(ax1, ax2, ax3)
-        ax_history.get_shared_y_axes().join(ax1, ax_history)
-
-        ys = actual_trial_nums if use_actual_trial_num else all_trial_num
-
-        # -- All licking events (Ordered by trials) --
-        for event_type in action_events:
-            # Batch plotting to speed up    
-            ax1.eventplot(lineoffsets=ys, 
-                        positions=all_licks_to_align[event_type],
-                        color=action_events[event_type],
-                        linelength=1,
-                        linewidth=1)   # Trial start
-
-            # -- Histogram of all licks --
-            sns.histplot(np.hstack(all_licks_to_align[event_type]), binwidth=0.05, alpha=0.5, 
-                        ax=ax2, color=action_events[event_type], label=event_type)  # 10-ms window
-
-            # -- Histogram of first lick after event_to_align --
-            sns.histplot(first_lick_after_align[event_type], binwidth=0.05, alpha=0.5, 
-                        ax=ax3, color=action_events[event_type],
-                        kde=True, kde_kws={'bw_adjust': 0.5})  # 10-ms window
-
-        # -- Draw other events --
-        for event_type in other_trial_events:
-            if event_type not in other_events_aligned:
-                continue
-            ax1.scatter(y=ys, 
-                            x=other_events_aligned[event_type],
-                            s=15,
-                            facecolors=other_trial_events[event_type][0], # if 'on' in event_type else "None",
-                            edgecolors='blue' if 'R' in event_type else 'red' if 'L' in event_type else 'face',
-                            marker=other_trial_events[event_type][1],
-                            label=event_type,
-                            alpha=0.3 if 'off' in event_type else 1,
-                            )   # Trial start
-
-        # -- Photostim duration --
-        for side, col in (('L', 'tomato'), ('R', 'deepskyblue')):
-            if all(x in other_events_aligned for x in (f'laser{side}on', f'laser{side}off')):
-                for n, y in enumerate(ys):
-                   if np.isnan(other_events_aligned[f'laser{side}on'][n]):
-                       continue
-                   ax1.plot([other_events_aligned[f'laser{side}on'][n], other_events_aligned[f'laser{side}off'][n]],
-                            [y, y],
-                            color=col, alpha=0.1, lw=2
-                            )
-
-
-        ax1.plot([0, 0], ax1.get_ylim(), 'k', lw=0.5)   # Aligned by trial_event_to_align
-        ax1.set(xlim=(-3, 5), xticklabels=[], yticklabels=[])
-        ax1.legend()
-
-        # sns.histplot(-align_to_times, binwidth=0.01, color='k', ax=ax2, label='trial start')  # 10-ms window
-        ax2.axvline(x=0, color='k', lw=0.5)
-        ax2.set(ylim=(0, max(ax2.get_ylim())), xticklabels=[], title=f'all licks') # Fix the ylim of left and right licks
-        ax2.legend()
-
-        ax3.axvline(x=0, color='k', lw=0.5)
-        ax3.set(xlabel=f'Time to "{trial_event_to_align}" (s)', title='first licks after 0') # Fix the ylim of left and right licks
-        # ax3.legend()
-
-        # -- trial history
-        c, r, _, p,_ = get_session_history(sess_key, remove_ignored=False)
-        foraging_model_plot.plot_session_lightweight([c,r,p], ax=ax_history, vertical=True, smooth_factor=10)
-        ax_history.set(ylabel='Trial number')
-        ax_history.get_legend().remove()
-
-        # fig.text(0.05, 0.1, _get_sess_info(sess_key), fontsize=12)
-        sns.despine(trim=False)
-
-
+    
     # Plot settings
     action_events = {'left lick':'red', 'right lick':'blue'}
 
@@ -976,13 +895,124 @@ def plot_lick_psth(sess_key=dict(subject_id=616134, session=17),
         if event_type not in all_event_time:
             continue
         this_times = (all_event_time[event_type] - all_event_time[trial_event_to_align]).astype(float)
-        other_events_aligned[event_type].extend(this_times)            
+        other_events_aligned[event_type].extend(this_times)    
+        
+    sns.set(style="ticks", context="talk", font_scale=1)
+    sns.set_palette("muted")
+    
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(12, 15))
+        
+        gs = ax._subplotspec.subgridspec(2, 2,
+                                        height_ratios=(6, 1),
+                                        width_ratios=(1, 2), 
+                                        #wspace=0.05, hspace=0.1, bottom=0.1, top=0.9, left=0.2, right=0.9
+                                        ) 
 
-    _do_plot(all_licks_aligned, first_lick_aligned)
+    ax_lick = fig.add_subplot(gs[0, 1])
+    ax_dist_all = fig.add_subplot(gs[1, 1])
+    ax_dist_first = fig.add_subplot(gs[1, 0])
+    ax_history = fig.add_subplot(gs[0, 0])
+    ax_lick.get_shared_x_axes().join(ax_lick, ax_dist_all)
+
+    ys = actual_trial_nums if use_actual_trial_num else all_trial_num
+
+    # -- All licking events (Ordered by trials) --
+    for event_type in action_events:
+        # Batch plotting to speed up    
+        ax_lick.eventplot(lineoffsets=ys, 
+                    positions=all_licks_aligned[event_type],
+                    color=action_events[event_type],
+                    linelength=1,
+                    linewidth=1)   # Trial start
+
+        # -- Histogram of all licks --
+        sns.histplot(np.hstack(all_licks_aligned[event_type]), binwidth=0.05, alpha=0.5, 
+                    ax=ax_dist_all, color=action_events[event_type], label=event_type)  # 10-ms window
+        
+        # -- Histogram of first lick after event_to_align --
+        sns.histplot(first_lick_aligned[event_type], binwidth=0.01, alpha=0.5, 
+                    ax=ax_dist_first, color=action_events[event_type],
+                    kde=True, kde_kws={'bw_adjust': 0.5})    
+
+    # -- Draw other events --
+    for event_type in other_trial_events:
+        if event_type not in other_events_aligned:
+            continue
+        ax_lick.scatter(y=ys, 
+                        x=other_events_aligned[event_type],
+                        s=15,
+                        facecolors=other_trial_events[event_type][0], # if 'on' in event_type else "None",
+                        edgecolors='blue' if 'R' in event_type else 'red' if 'L' in event_type else 'face',
+                        marker=other_trial_events[event_type][1],
+                        label=event_type,
+                        alpha=0.3 if 'off' in event_type else 1,
+                        )   # Trial start
+
+    # -- Photostim duration --
+    for side, col in (('L', 'tomato'), ('R', 'deepskyblue')):
+        if all(x in other_events_aligned for x in (f'laser{side}on', f'laser{side}off')):
+            for n, y in enumerate(ys):
+                if np.isnan(other_events_aligned[f'laser{side}on'][n]):
+                    continue
+                ax_lick.plot([other_events_aligned[f'laser{side}on'][n], other_events_aligned[f'laser{side}off'][n]],
+                        [y, y],
+                        color=col, alpha=0.1, lw=2
+                        )
+
+    ax_lick.plot([0, 0], ax_lick.get_ylim(), 'k', lw=0.5)   # Aligned by trial_event_to_align
+    ax_lick.set(xlim=(-3, 5), xticklabels=[], yticklabels=[])
+    ax_lick.legend()
+
+    # sns.histplot(-align_to_times, binwidth=0.01, color='k', ax=ax2, label='trial start')  # 10-ms window
+    ax_dist_all.axvline(x=0, color='k', lw=0.5)
+    ax_dist_all.set(ylim=(0, max(ax_dist_all.get_ylim())), 
+                    #xticklabels=[], 
+                    title=f'All licks',
+                    ylabel='',
+                    xlabel=f'Time to "{trial_event_to_align}" (s)', ) # Fix the ylim of left and right licks
+    ax_dist_all.legend()
+
+    ax_dist_first.axvline(x=0, color='k', lw=0.5)
+    ax_dist_first.set(xlabel=f'Time to "{trial_event_to_align}" (s)', 
+                        title='Reaction time (first lick)' 
+                        if trial_event_to_align =='go' 
+                        else'First licks after 0') # Fix the ylim of left and right licks
+    ax_dist_first.set(xlim=(-0, 1))
+    # ax3.legend()  
+    
+    # -- trial history
+    c, r, _, p,_ = get_session_history(sess_key, remove_ignored=False)
+    q_photostim = experiment.PhotostimForagingTrial & sess_key
+    photostim = q_photostim.fetch('trial', 'power', 'bpod_timer_align_to') if len(q_photostim) else None
+
+    _, ax_history = foraging_model_plot.plot_session_lightweight([c,r,p], 
+                                                                    photostim=photostim,
+                                                                    ax=ax_history, vertical=True, 
+                                                                    smooth_factor=10)
+    ax_history[0].set(ylabel='Trial number')
+    # ax_history.get_legend().remove()
+    
+    ax_lick.invert_yaxis()
+    ax_lick.set_ylim(ax_history[0].get_ylim())
+
+    # fig.text(0.05, 0.1, _get_sess_info(sess_key), fontsize=12)
+    sns.despine(trim=False)
+
+    ax.remove()
     plt.show()
     
-    #%%
+    return [ax_history, ax_lick, ax_dist_all, ax_dist_first]
     
+    #%%
+
+def plot_session_reaction_time():
+
+    # -- Histogram of first lick after event_to_align --
+    sns.histplot(first_lick_after_align[event_type], binwidth=0.01, alpha=0.5, 
+                ax=ax_dist_first, color=action_events[event_type],
+                kde=True, kde_kws={'bw_adjust': 0.5})      
+    pass
     
 def plot_sessions_finished_ratio():
     pass
