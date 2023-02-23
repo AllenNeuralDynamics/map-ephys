@@ -20,11 +20,11 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
                                                     #   keep_all_rows=True, ephys_insertions='IF(COUNT(insertion_number), "yes", "no")')
                                                 keep_all_rows=True, ephys_ins='COUNT(insertion_number)')
     if_histology = foraging_sessions.aggr(foraging_sessions * histology.ElectrodeCCFPosition.ElectrodePosition, ...,
-                                        keep_all_rows=True, histology='IF(COUNT(ccf_x)>0, "yes", "no")')
+                                        keep_all_rows=True, histology='IF(COUNT(ccf_x)>0, "yes", "")')
     if_photostim_from_behav = foraging_sessions.aggr(foraging_sessions * experiment.PhotostimForagingTrial, ...,
-                                        keep_all_rows=True, photostim_behav='IF(COUNT(trial)>0, "yes", "no")')
+                                        keep_all_rows=True, photostim='IF(COUNT(trial)>0, "yes", "")')
     if_photostim_from_ephys = foraging_sessions.aggr(foraging_sessions * (ephys.TrialEvent & 'trial_event_type LIKE "laser%"'), ...,
-                                        keep_all_rows=True, photostim_NI='IF(COUNT(trial)>0, "yes", "no")')
+                                        keep_all_rows=True, photostim_NI='IF(COUNT(trial)>0, "yes", "")')
 
     df_sessions = pd.DataFrame(((experiment.Session & foraging_sessions)
                                 * lab.WaterRestriction.proj(h2o='water_restriction_number')
@@ -40,7 +40,7 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
 
     # add task protocol
     df_session_stats = pd.DataFrame((foraging_analysis.SessionStats.proj(
-                                                                        trial_num_finished='session_pure_choices_num', 
+                                                                        finished='session_pure_choices_num', 
                                                                         foraging_eff='session_foraging_eff_optimal',
                                                                         foraging_eff_randomseed='session_foraging_eff_optimal_random_seed',
                                                                         reward_rate='session_hit_num / session_total_trial_num',
@@ -55,12 +55,12 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
                                                                         autowater_num='session_autowater_num',
                                                                         length='session_length',
                                                                         )
-                                    * foraging_analysis.SessionTaskProtocol.proj(task='session_task_protocol', not_pretrain='session_real_foraging')
-                                    * foraging_analysis.SessionEngagementControl.proj(valid_trial_start='start_trial',
-                                                                                    valid_trial_end='end_trial',
-                                                                                    valid_ratio='valid_ratio',
-                                                                                    )
-                                    & foraging_sessions).fetch())
+                                * foraging_analysis.SessionTaskProtocol.proj(task='session_task_protocol', not_pretrain='session_real_foraging')
+                                * foraging_analysis.SessionEngagementControl.proj(valid_trial_start='start_trial',
+                                                                                valid_trial_end='end_trial',
+                                                                                valid_ratio='valid_ratio',
+                                                                                )
+                                & foraging_sessions).fetch())
 
     df_session_stats.foraging_eff[df_session_stats.foraging_eff_randomseed.notna()] = df_session_stats.foraging_eff_randomseed[df_session_stats.foraging_eff_randomseed.notna()]
     df_session_stats.drop('foraging_eff_randomseed', axis=1, inplace=True)
@@ -73,7 +73,7 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
     df_photostim = df_photostim.merge(df_photostim_trial.groupby(['subject_id', 'session']).power.median(), how='left', on=('subject_id', 'session')
                                     ).merge(df_photostim_trial.groupby(['subject_id', 'session'])['bpod_timer_align_to', 'bpod_timer_offset', 'ramping_down'].agg(pd.Series.mode).astype(str), how='left', on=('subject_id', 'session'))
     df_photostim.rename({'power': 'laser_power_median', 'ramping_down': 'laser_ramping_down', 'bpod_timer_align_to': 'laser_aligned_to'}, axis=1)
-    
+
     #TODO: laser ratio and median inter_S_interval
 
 
@@ -81,6 +81,21 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
     df_sessions = df_sessions.merge(df_photostim.query('side == "left"').drop('side', axis=1), how='left', on=('subject_id', 'session')
                                 ).merge(df_session_stats, how='left', on=('subject_id', 'session')
                                 ).rename(columns={'location': 'photostim_location'})
+
+    # formatting
+    to_int = ['ephys_ins', 'finished', *[col for col in df_sessions if 'num' in col], 'valid_trial_start', 'valid_trial_end']
+    for col in to_int:
+        df_sessions[col] = df_sessions[col].astype('Int64')
+        
+    # reorder
+    #df_sessions = reorder_df(df_sessions, 'h2o', 3)
+    for name, order in (('finished', 4), 
+                        ('foraging_eff', 5),
+                        ('photostim', 6),
+                        ('task', 7),
+                    ):
+        df_sessions = reorder_df(df_sessions, name, order)
+
 
 
     local_file_name = local_cache_root + file_name
@@ -120,3 +135,11 @@ def upload_file(file_name, bucket, object_name=None):
         logging.error(e)
         return False
     return True
+
+
+
+def reorder_df(df, column_name, new_loc):
+    tmp = df[column_name]
+    df = df.drop(columns=[column_name])
+    df.insert(loc=new_loc, column=column_name, value=tmp)
+    return df
