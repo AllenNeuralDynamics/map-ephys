@@ -111,7 +111,7 @@ class SessionLogisticRegressionReport(dj.Computed):
 class SessionBehaviorFittedChoiceReport(dj.Computed):
     definition = """
     -> foraging_analysis.SessionTaskProtocol    # Foraging sessions
-    model_id:   int  # specific ids and None (best for each session)
+    model_id:   int  # specific ids and -1 (best for each session)
     ---
     fitted_choice: filepath@report_store
     """
@@ -140,16 +140,19 @@ class SessionBehaviorFittedChoiceReport(dj.Computed):
                                                                                     smooth_factor=5,
                                                                                     ax=None,
                                                                                     vertical=False)
-            
-            model_id_plotted = model_plotted[2].iloc[0].model_id
+            if len(model_plotted):
+                model_id_plotted = model_plotted.iloc[0].model_id
+                model_str = f'model_{"best_" if model_id is None else ""}{model_id_plotted}'
+            else:
+                model_str = 'model_None'
             
             # Save figures
             water_res_num, sess_date = report.get_wr_sessdatetime(key)
             sess_dir = store_stage / 'all_sessions' / 'fitted_choice' / water_res_num
             sess_dir.mkdir(parents=True, exist_ok=True)
             
-            fn_prefix = f'{water_res_num}_{sess_date.split("_")[0]}_{key["session"]}' \
-                        f'_model_{"best_" if model_id is None else ""}{model_id_plotted}'
+            fn_prefix = f'{water_res_num}_{sess_date.split("_")[0]}_{key["session"]}_{model_str}_' \
+                        
                 
             fig_dict = report.save_figs(
                 (fig,),
@@ -159,7 +162,7 @@ class SessionBehaviorFittedChoiceReport(dj.Computed):
             plt.close('all')
 
             self.insert1({**key, **fig_dict, 
-                          'model_id': None if model_id is None else ""}, 
+                          'model_id': -1 if model_id is None else model_id}, 
                         ignore_extra_fields=True,
                         allow_direct_insert=True)
 
