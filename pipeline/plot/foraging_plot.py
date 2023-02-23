@@ -975,7 +975,7 @@ def plot_lick_psth(sess_key=dict(subject_id=616134, session=17),
 
     ax_dist_first.axvline(x=0, color='k', lw=0.5)
     ax_dist_first.set(xlabel=f'Time to "{trial_event_to_align}" (s)', 
-                        title='Reaction time (first lick)' 
+                        title='First lick (reaction time)' 
                         if trial_event_to_align =='go' 
                         else'First licks after 0') # Fix the ylim of left and right licks
     ax_dist_first.set(xlim=(-0, 1))
@@ -990,7 +990,7 @@ def plot_lick_psth(sess_key=dict(subject_id=616134, session=17),
                                                                     photostim=photostim,
                                                                     ax=ax_history, vertical=True, 
                                                                     smooth_factor=10)
-    ax_history[0].set(ylabel='Trial number')
+    ax_history[1].set(ylabel='Trial number')
     # ax_history.get_legend().remove()
     
     ax_lick.invert_yaxis()

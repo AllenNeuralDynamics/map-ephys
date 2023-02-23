@@ -5,7 +5,7 @@ import pathlib
 
 from . import experiment, ephys, foraging_analysis, foraging_model, util, report
 from . import get_schema_name, create_schema_settings
-from .plot import foraging_model_plot
+from .plot import foraging_model_plot, foraging_plot
 from .model.bandit_model_comparison import BanditModelComparison
 
 
@@ -166,12 +166,44 @@ class SessionBehaviorFittedChoiceReport(dj.Computed):
                         ignore_extra_fields=True,
                         allow_direct_insert=True)
 
+
+
+@schema
+class SessionLickPSTHReport(dj.Computed):
+    definition = """
+    -> foraging_analysis.SessionTaskProtocol    # Foraging sessions
+    ---
+    lick_psth: filepath@report_store
+    """
+    
+    key_source = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)')
+    
+    def make(self, key):
+        # generate figure
+        axs = foraging_plot.plot_lick_psth(key)
+        fig = axs[-1].get_figure()
         
+        # save figures
+        water_res_num, sess_date = report.get_wr_sessdatetime(key)
+        sess_dir = store_stage / 'all_sessions' / 'lick_psth' / water_res_num
+        sess_dir.mkdir(parents=True, exist_ok=True)
+        
+        fn_prefix = f'{water_res_num}_{sess_date.split("_")[0]}_{key["session"]}_' \
+            
+        fig_dict = report.save_figs(
+            (fig,),
+            ('lick_psth',),
+            sess_dir, fn_prefix)
+        
+        plt.close('all')
+
+        self.insert1({**key, **fig_dict}, 
+                    ignore_extra_fields=True,
+                    allow_direct_insert=True)
     
     
 # -------- Helpers ----------
     
-  
 def decode_logistic_reg(reg):
     mapper = {'b_RewC': 'RewC', 'b_UnrC': 'UnrC', 'b_C': 'C'}    
     output = []
