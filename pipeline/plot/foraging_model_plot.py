@@ -134,7 +134,7 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
     :param smooth_factor: for actual data
     :return: axis
     """
-
+        
     # Fetch actual data
     choice_history, reward_history, iti, p_reward, q_trial = foraging_model.get_session_history(sess_key, 
                                                                                                 remove_ignored=remove_ignored)
@@ -153,7 +153,7 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
         q_photostim &= experiment.BehaviorTrial & sess_key & 'outcome != "ignore"'
         
     photostim = q_photostim.fetch('trial', 'power', 'bpod_timer_align_to') if len(q_photostim) else None
-    if remove_ignored:
+    if photostim and remove_ignored:
         photostim[0] = np.searchsorted(q_trial.fetch('trial'), photostim[0])
         
     # add valid trial start and end for engagement control
@@ -161,31 +161,60 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
         valid_range = (foraging_analysis.SessionEngagementControl & sess_key).fetch1('start_trial', 'end_trial')
     else:
         valid_range = None
+        
+    # setting up axes
+    if_Q = len(results_to_plot) > 0
     
+    if if_Q:
+        if ax is None:
+            fig, ax = plt.subplots(1, 1, figsize=(15, 4), dpi=200)
+            plt.subplots_adjust(left=0.1, right=0.8, bottom=0.05, top=0.8)
+        gs = ax._subplotspec.subgridspec(2, 1, height_ratios=[5, 1], hspace=0.1)
+        ax_lightweight = ax.get_figure().add_subplot(gs[0, 0])
+        ax_Q = ax.get_figure().add_subplot(gs[1, 0])
+    else:
+        fig, ax = plt.subplots(1, 1, figsize=(15, 3), dpi=200)
+        plt.subplots_adjust(left=0.1, right=0.8, bottom=0.05, top=0.8)
+        ax_lightweight = ax
+
     # -- Plot actual choice and reward history --
     with sns.plotting_context("notebook", font_scale=1, rc={'style': 'ticks'}):
-        fig, ax = plot_session_lightweight([choice_history, reward_history, p_reward], 
+        fig, axs_choice = plot_session_lightweight([choice_history, reward_history, p_reward], 
                                            photostim=photostim,
                                            valid_range=valid_range,
-                                           smooth_factor=smooth_factor, ax=ax,
+                                           smooth_factor=smooth_factor, 
+                                           ax=ax_lightweight,
                                            vertical=vertical)
     
-        try:
-            # -- Plot fitted choice probability etc. --
-            model_str =  (f'Model comparison: {(foraging_model.ModelComparison & q_model_comparison).fetch1("desc")}'
-                            f'(n = {len(results)})') if specified_model_ids is None else ''
-            # plt.gcf().text(0.05, 0.95, f'{(lab.WaterRestriction & sess_key).fetch1("water_restriction_number")}, '
-            #                             f'session {sess_key["session"]}, {results.n_trials[0]} trials\n' + model_str)
-            
-            for idx, result in results_to_plot.iterrows():
-                trial, right_choice_prob = (foraging_model.FittedSessionModel.TrialLatentVariable
-                                    & dict(result) & 'water_port="right"').fetch('trial', 'choice_prob')
-                ax[0].plot(np.arange(0, n_trials) if remove_ignored else trial, right_choice_prob, linewidth=max(1.2 - 0.3 * idx, 0.2),
-                        label=f'{idx + 1}: <{result.model_id}>'
-                                f'{result.model_notation}\n'
-                                f'({result.fitted_param})')
-        except:
-            pass
+        if if_Q:
+            try:
+                # -- Plot fitted choice probability etc. --
+                model_str =  (f'Model comparison: {(foraging_model.ModelComparison & q_model_comparison).fetch1("desc")}'
+                                f'(n = {len(results)})') if specified_model_ids is None else ''
+                # plt.gcf().text(0.05, 0.95, f'{(lab.WaterRestriction & sess_key).fetch1("water_restriction_number")}, '
+                #                             f'session {sess_key["session"]}, {results.n_trials[0]} trials\n' + model_str)
+                
+                for idx, result in results_to_plot.iterrows():
+                    trial, right_choice_prob = (foraging_model.FittedSessionModel.TrialLatentVariable
+                                        & dict(result) & 'water_port="right"').fetch('trial', 'choice_prob')
+                    
+                    axs_choice[0].plot(np.arange(0, n_trials) if remove_ignored else trial, 
+                            right_choice_prob, linewidth=max(1.2 - 0.3 * idx, 0.2),
+                            label=f'{idx + 1}: <{result.model_id}>'
+                                    f'{result.model_notation}\n'
+                                    f'({result.fitted_param})')
+                    
+                # Plot QL and QR of the first model
+                for side, col in zip(('right', 'left'), ('b', 'r')):
+                    trial, Q = (foraging_model.FittedSessionModel.TrialLatentVariable
+                                & dict(results_to_plot.iloc[0]) & f'water_port="{side}"').fetch('trial', 'action_value')
+                    ax_Q.plot(np.arange(0, n_trials) if remove_ignored else trial,
+                            Q, linewidth=1, color=col, label=f'Q_{side}')
+                    ax_Q.legend(fontsize=5, ncol=1, loc='upper left', bbox_to_anchor=(0, 1))
+                    ax_Q.set_ylim(-0.01, 1.01)
+                
+            except Exception as e:
+                pass
                 
 
         #TODO Plot session starts
@@ -198,14 +227,20 @@ def plot_session_fitted_choice(sess_key={'subject_id': 473361, 'session': 47},
         #         except:
         #             pass
 
-    # ax[0].legend(fontsize=6, loc='upper left', bbox_to_anchor=(0.6, 1.3), ncol=2)
-    ax[0].text(0, 1.1, util._get_sess_info(sess_key), fontsize=10, transform=ax[0].transAxes)
-    ax[1].set_xlabel('Trial number (finished trials only)' if remove_ignored else 'Original trial number')
+    axs_choice[0].legend(fontsize=6, loc='upper left', bbox_to_anchor=(0.4, 1.4), ncol=3)
+    axs_choice[0].text(0, 1.1, util._get_sess_info(sess_key), fontsize=10, transform=axs_choice[0].transAxes)
+    
+    if if_Q:
+        axs_choice[1].set_xticks([])
+        ax_Q.set_xlabel('Trial number (finished trials only)' if remove_ignored else 'Original trial number')
+        sns.despine(trim=True, ax=ax_Q)
 
-    # fig.tight_layout()
-    # sns.set()
-
-    return ax
+        # fig.tight_layout()
+        # sns.set()
+        ax.remove()        
+        return [axs_choice[0], axs_choice[1], ax_Q]
+    else:
+        return axs_choice
 
 
 def plot_session_lightweight(data,   # choice_history, reward_history, p_reward
@@ -219,7 +254,7 @@ def plot_session_lightweight(data,   # choice_history, reward_history, p_reward
     # sns.reset_orig()
     
     if ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(12, 3) if not vertical else (3, 12), dpi=200)
+        fig, ax = plt.subplots(1, 1, figsize=(15, 3) if not vertical else (3, 12), dpi=200)
         plt.subplots_adjust(left=0.1, right=0.8, bottom=0.05, top=0.8)
 
     if not vertical:
@@ -320,9 +355,9 @@ def plot_session_lightweight(data,   # choice_history, reward_history, p_reward
         ll = p_reward[0, :]
         rr = p_reward[1, :]
         ax_2.plot(*(xx, rr) if not vertical else [*(rr, xx)],
-                color='b', label='p_r', lw=1)
+                color='b', label='p_right', lw=1)
         ax_2.plot(*(xx, ll) if not vertical else [*(ll, xx)],
-                color='r', label='p_l', lw=1)
+                color='r', label='p_left', lw=1)
         ax_2.legend(fontsize=5, ncol=1, loc='upper left', bbox_to_anchor=(0, 1))
         
         if not vertical:
@@ -351,7 +386,7 @@ def plot_session_lightweight(data,   # choice_history, reward_history, p_reward
     # fig.tight_layout()
     ax.remove()
 
-    return fig, [ax_1, ax_2]
+    return ax_1.get_figure(), [ax_1, ax_2]
 
 
 def plot_mouse_fitting_results(subject_id, model_comparison_idx=0, sort='aic',
