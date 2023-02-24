@@ -53,9 +53,10 @@ class SessionLogisticRegression(dj.Computed):
             
         # Do logistic regression and generate figures
         start_trial, end_trial = (foraging_analysis.SessionEngagementControl & key).fetch1('start_trial', 'end_trial')
-        c, r, _, p, _ = foraging_model.get_session_history(key, remove_ignored=True)
-        choice = c[0][start_trial - 1:end_trial]
-        reward = np.sum(r, axis=0)[start_trial - 1:end_trial]
+        c, r, _, p, q = foraging_model.get_session_history(key, remove_ignored=True)
+        valid_trial_idx = (start_trial <= q.fetch('trial')) & (q.fetch('trial') <= end_trial)
+        choice = c[0][valid_trial_idx]
+        reward = np.sum(r, axis=0)[valid_trial_idx]
         
         if if_photostim:
             non_ignore_trial = (experiment.BehaviorTrial & key & 'outcome != "ignore"').fetch('trial')
