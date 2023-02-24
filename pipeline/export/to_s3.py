@@ -87,6 +87,12 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
     for col in to_int:
         df_sessions[col] = df_sessions[col].astype('Int64')
         
+    to_float = ['foraging_eff', *[col for col in df_sessions if 'rate' in col], 
+                                *[col for col in df_sessions if 'mean' in col],
+                                'valid_ratio']
+    for col in to_float:
+        df_sessions[col] = df_sessions[col].astype(float)
+        
     # reorder
     #df_sessions = reorder_df(df_sessions, 'h2o', 3)
     for name, order in (('finished', 4), 
