@@ -52,20 +52,24 @@ class SessionLogisticRegression(dj.Computed):
 
             
         # Do logistic regression and generate figures
-        start_trial, end_trial = (foraging_analysis.SessionEngagementControl & key).fetch1('start_trial', 'end_trial')
+        trial_valid_start, trial_valid_end = (foraging_analysis.SessionEngagementControl & key).fetch1('start_trial', 'end_trial')
         c, r, _, p, q = foraging_model.get_session_history(key, remove_ignored=True)
-        valid_trial_idx = (start_trial <= q.fetch('trial')) & (q.fetch('trial') <= end_trial)
-        choice = c[0][valid_trial_idx]
-        reward = np.sum(r, axis=0)[valid_trial_idx]
+        trial_non_ignore = q.fetch('trial')
+        
+        idx_valid_in_non_ignore = (trial_valid_start <= trial_non_ignore) & (trial_non_ignore <= trial_valid_end)
+        choice = c[0][idx_valid_in_non_ignore]
+        reward = np.sum(r, axis=0)[idx_valid_in_non_ignore]
         
         if if_photostim:
-            non_ignore_trial = (experiment.BehaviorTrial & key & 'outcome != "ignore"').fetch('trial')
-            photostim_trial = (experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"')).fetch('trial')
-            photostim_idx = np.nonzero(np.in1d(non_ignore_trial, photostim_trial))[0]   # np.searchsorted(non_ignore_trial, photostim_trial)
+            trial_photostim_and_non_ignore = (experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"')).fetch('trial')
+            trial_non_ignore_and_valid = trial_non_ignore[idx_valid_in_non_ignore]
+            idx_photostim_in_non_ignore_and_valid = np.nonzero(np.in1d(trial_non_ignore_and_valid, trial_photostim_and_non_ignore))[0]   # np.searchsorted(non_ignore_trial, photostim_trial)
         else:
-            photostim_idx = None
+            idx_photostim_in_non_ignore_and_valid = None
         
-        logistic_regs = foraging_model_plot.plot_session_logistic(choice, reward, photostim_idx=photostim_idx, ax=ax)
+        logistic_regs = foraging_model_plot.plot_session_logistic(choice, reward, 
+                                                                  photostim_idx=idx_photostim_in_non_ignore_and_valid, 
+                                                                  ax=ax)
 
         for trial_group, logistic_reg in zip(trial_groups, logistic_regs):
             rows = decode_logistic_reg(logistic_reg)
