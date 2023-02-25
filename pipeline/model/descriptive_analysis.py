@@ -17,6 +17,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
+import statsmodels.api as sm
+import seaborn as sns
 
 
 def win_stay_lose_shift(choice, reward, selected_trial_idx=None):
@@ -239,10 +241,52 @@ def logistic_regression_bootstrap(data, Y, n_bootstrap=1000, n_samplesize=None, 
         # logistic_reg.bias) = decode_betas(np.vstack([bs['mean'], bs['mean']]))
     
     return logistic_reg
+
+
+
+# --- Linear regression of z-scored RT ----
+def prepare_linear_reg_RT(choice, reward, reaction_time, iti, trials_back=10, selected_trial_idx=None):
+    n_trials = len(choice)
+    data = []
+
+    # Select trials
+    if selected_trial_idx is None:
+        trials = range(trials_back, n_trials)
+    else:
+        trials = np.intersect1d(selected_trial_idx, range(trials_back, n_trials))
+
+    # Design matrix
+    for trial in trials:
+        data.append(np.hstack([
+                            (iti[trial] - np.mean(iti)) / np.std(iti),      # normalized iti means before the trial here
+                            #reaction_time[trial - 1],   # last RT
+                            choice[trial],   # current choice (accounting for licking bias)
+                            trial / n_trials,   # normalized trial number
+                            reward[trial - trials_back : trial][::-1],  # reward history
+                            ]))
+    X = np.array(data)
+    Y = reaction_time[trials]
+    Y = (Y - np.nanmean(reaction_time)) / np.nanstd(reaction_time)  # z-scored using all reaction times of this session, not just selected trials
     
+    # remove nans in Y, just in case
+    valid_Y = ~np.isnan(Y)
+    Y = Y[valid_Y]
+    X = X[valid_Y, :]
+    
+    x_name = ['constant', 'previous_iti', 'this_choice', 'trial_number', 
+              *[f'reward (-{x})' for x in range(1, trials_back + 1)]]
+    
+    return X, Y, x_name
+
+
+def linear_regression(X, Y, x_name=None):
+    model = sm.OLS(Y, sm.add_constant(X), xname=x_name)
+    linear_reg = model.fit()
+    linear_reg.x_name = x_name
+    return linear_reg
+
 
 # ----- Plotting functions -----
-            
 def plot_logistic_regression(logistic_reg, ax=None, ls='-o'):
     if ax is None:
         fig, ax = plt.subplots(1, 1)
@@ -349,7 +393,115 @@ def plot_logistic_compare(logistic_to_compare,
     ax_all.remove()
     
     return axes
+
+
+
+def plot_linear_regression_RT(regs, ax=None, 
+                              cols=['k', 'royalblue', 'lightskyblue'], 
+                              labels=['control', 'photostim', 'photostim+1'],
+                              offset=0.2):
+    '''
+    plot list of linear regressions
+    '''
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6), dpi=200)
+        
+    gs = ax._subplotspec.subgridspec(1, 2, width_ratios=[1, 3], wspace=0.2)
+    ax_others = ax.get_figure().add_subplot(gs[0, 0])
+    ax_reward = ax.get_figure().add_subplot(gs[0, 1])
     
+    if not isinstance(regs, list):
+        regs = [regs]   
+        
+    for i_reg, (reg, col) in enumerate(zip(regs, cols)):
+    
+        paras = {name: (value, ci, p) for name, value, ci, p in zip(reg.x_name, 
+                                                                    reg.params,
+                                                                    reg.params - reg.conf_int(alpha=0.05)[:, 0],
+                                                                    reg.pvalues)}
+        
+        names = ['previous_iti', 'this_choice', 'trial_number', 'constant']
+        xx = np.arange(len(names))
+        yy = [paras[name][0] for name in names]
+        yerr = [paras[name][1] for name in names]
+        sigs = [paras[name][2] < 0.05 for name in names]
+        ax_others.errorbar(x=xx + i_reg * offset,
+                           y=yy, yerr=yerr,
+                        ls='none', color=col, capsize=5, markeredgewidth=1,
+                        )
+        ax_others.scatter(x=xx + i_reg * offset, 
+                          y=yy,
+                        facecolors=[col if sig else 'none' for sig in sigs],
+                        marker='o', edgecolors=col, linewidth=1,
+                        )
+        ax_others.set_xlim(-1, 4)
+        
+        ax_others.set_xticks(range(len(names)))
+        ax_others.set_xticklabels(names, rotation=45, ha='right')
+        ax_others.axhline(y=0, color='k', linestyle=':', linewidth=1)
+        ax_others.set(ylabel='fitted $\\beta\pm$95% CI ')
+    
+        xx = np.arange(1, len(paras) - 4 + 1)
+        yy = [paras[f'reward (-{x})'][0] for x in xx]
+        yerr = [paras[f'reward (-{x})'][1] for x in xx]
+        sigs = [paras[f'reward (-{x})'][2] < 0.05 for x in xx]
+        ax_reward.errorbar(x=xx + i_reg * offset, 
+                           y=yy, yerr=yerr,
+                        color=col, capsize=5, markeredgewidth=1
+                        )
+        ax_reward.scatter(x=xx + i_reg * offset,
+                          y=yy,
+                        facecolors=[col if sig else 'none' for sig in sigs],
+                        marker='o', edgecolors=col, linewidth=1,
+                        label=f'{labels[i_reg]}, n = {int(reg.nobs)}',
+                        )
+        
+        ax_reward.legend(loc='upper right')
+
+        ax_reward.set(xlabel='Reward of past trials')
+        ax_reward.axhline(y=0, color='k', linestyle=':', linewidth=1)
+        ax_reward.set(xticks=[1, 5, 10])
+    
+    ax_reward.invert_yaxis()
+    
+    sns.despine(trim=True)
+    ax.get_figure().suptitle('Linear regression on RT')
+
+    ax.remove()
+    
+    return ax
+
+
+
+def plot_session_linear_reg_RT(choice, reward, reaction_time, iti, 
+                               photostim_idx=None, ax=None):
+    
+    if photostim_idx is None:
+        # Fit models for control, photostim, photostim_next
+        data, Y, x_name = prepare_linear_reg_RT(choice, reward, reaction_time, iti)
+        linear_reg = linear_regression(data, Y, x_name)
+        plot_linear_regression_RT([linear_reg], ax=ax)
+        
+        return [linear_reg]
+
+    else:
+
+        ctrl_idx = np.setdiff1d(np.arange(len(choice)), photostim_idx)
+
+        # Fit models for control, photostim, photostim_next
+        data_ctrl, Y_ctrl, x_name = prepare_linear_reg_RT(choice, reward, reaction_time, iti, selected_trial_idx=ctrl_idx)
+        linear_reg = linear_regression(data_ctrl, Y_ctrl, x_name)
+
+        data_photostim0, Y_photostim0, _ = prepare_linear_reg_RT(choice, reward, reaction_time, iti, selected_trial_idx=photostim_idx)
+        linear_reg_photostim0 = linear_regression(data_photostim0, Y_photostim0, x_name)
+
+        data_photostim1, Y_photostim1, _ = prepare_linear_reg_RT(choice, reward, reaction_time, iti, selected_trial_idx=photostim_idx + 1)
+        linear_reg_photostim1 = linear_regression(data_photostim1, Y_photostim1, x_name)
+
+        plot_linear_regression_RT([linear_reg, linear_reg_photostim0, linear_reg_photostim1], ax=ax)
+    
+        return [linear_reg, linear_reg_photostim0, linear_reg_photostim1]
+
 
 
 def plot_wsls(p_wslss, ax=None, edgecolors=None, labels=None):

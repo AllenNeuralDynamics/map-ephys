@@ -6,6 +6,7 @@ import pathlib
 from . import experiment, ephys, foraging_analysis, foraging_model, util, report
 from . import get_schema_name, create_schema_settings
 from .plot import foraging_model_plot, foraging_plot
+from pipeline.model import descriptive_analysis
 from .model.bandit_model_comparison import BanditModelComparison
 
 
@@ -54,14 +55,14 @@ class SessionLogisticRegression(dj.Computed):
         # Do logistic regression and generate figures
         trial_valid_start, trial_valid_end = (foraging_analysis.SessionEngagementControl & key).fetch1('start_trial', 'end_trial')
         c, r, _, p, q = foraging_model.get_session_history(key, remove_ignored=True)
-        trial_non_ignore = q.fetch('trial')
+        trial_non_ignore = q.fetch('trial', order_by='trial')
         
         idx_valid_in_non_ignore = (trial_valid_start <= trial_non_ignore) & (trial_non_ignore <= trial_valid_end)
         choice = c[0][idx_valid_in_non_ignore]
         reward = np.sum(r, axis=0)[idx_valid_in_non_ignore]
         
         if if_photostim:
-            trial_photostim_and_non_ignore = (experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"')).fetch('trial')
+            trial_photostim_and_non_ignore = (experiment.PhotostimForagingTrial & q).fetch('trial', order_by='trial')
             trial_non_ignore_and_valid = trial_non_ignore[idx_valid_in_non_ignore]
             idx_photostim_in_non_ignore_and_valid = np.nonzero(np.in1d(trial_non_ignore_and_valid, trial_photostim_and_non_ignore))[0]   # np.searchsorted(non_ignore_trial, photostim_trial)
         else:
@@ -111,6 +112,96 @@ class SessionLogisticRegressionReport(dj.Computed):
         """
         pass
     
+
+@schema
+class SessionLinearRegressionRT(dj.Computed):
+    definition = """
+    -> foraging_analysis.SessionTaskProtocol    # Foraging sessions
+    ---
+    linear_regression_rt:   filepath@report_store
+    """
+    
+    class Param(dj.Part):
+        definition = """
+        -> master
+        trial_group:  varchar(30)    # no_stim_all, ctrl, photostim, photostim_next
+        variable:         varchar(30)    # constant, previous_iti, this_choice, trial_number, reward etc.
+        trials_back:  smallint          
+        ---
+        beta:     float
+        ci_interval:   float
+        p: float
+        """
+        
+    
+    foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)').proj()
+    key_source = foraging_sessions  & experiment.PhotostimForagingTrial  # Photostim only
+    
+    def make(self, key):
+        
+        if_photostim = len((experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"'))) > 10
+
+        # --- Fetch data ---
+        c, r, iti, p, q = foraging_model.get_session_history(key, remove_ignored=True)
+        reaction_time = (foraging_analysis.TrialStats & q).fetch('reaction_time', order_by='trial').astype(float)
+        trial_non_ignore = q.fetch('trial', order_by='trial')
+
+        trial_valid_start, trial_valid_end = (foraging_analysis.SessionEngagementControl & key).fetch1('start_trial', 'end_trial')
+
+        idx_valid_in_non_ignore = (trial_valid_start <= trial_non_ignore) & (trial_non_ignore <= trial_valid_end)
+        choice = c[0][idx_valid_in_non_ignore]
+        reward = np.sum(r, axis=0)[idx_valid_in_non_ignore]
+        iti = iti[idx_valid_in_non_ignore]
+        reaction_time = reaction_time[idx_valid_in_non_ignore]
+
+        if if_photostim:
+            trial_photostim_and_non_ignore = (experiment.PhotostimForagingTrial & q).fetch('trial', order_by='trial')
+            trial_non_ignore_and_valid = trial_non_ignore[idx_valid_in_non_ignore]
+            idx_photostim_in_non_ignore_and_valid = np.nonzero(np.in1d(trial_non_ignore_and_valid, trial_photostim_and_non_ignore))[0]   # np.searchsorted(non_ignore_trial, photostim_trial)
+            trial_groups = ['ctrl', 'photostim', 'photostim_next']
+        else:
+            idx_photostim_in_non_ignore_and_valid = None
+            trial_groups = ['all_no_stim']
+            
+        # --- Fit and plot ---
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6), dpi=200)
+        linear_regs = descriptive_analysis.plot_session_linear_reg_RT(choice, reward, reaction_time, iti,
+                                                                        photostim_idx=idx_photostim_in_non_ignore_and_valid, 
+                                                                        ax=ax)
+        
+        # --- save figures ---
+        water_res_num, sess_date = report.get_wr_sessdatetime(key)
+        sess_dir = store_stage / 'all_sessions' / 'linear_regression_rt' / water_res_num
+        sess_dir.mkdir(parents=True, exist_ok=True)
+        
+        fn_prefix = f'{water_res_num}_{sess_date.split("_")[0]}_{key["session"]}_'
+
+        fig.suptitle(util._get_sess_info(key))
+            
+        fig_dict = report.save_figs(
+            (fig,),
+            ('linear_regression_rt',),
+            sess_dir, fn_prefix)
+        
+        self.insert1({**key, **fig_dict}, 
+                    ignore_extra_fields=True,
+                    )
+        
+        plt.close('all')
+        
+        # --- save params ---
+        for trial_group, linear_reg in zip(trial_groups, linear_regs):
+            rows = decode_linear_reg_RT(linear_reg)
+            self.Param.insert({**key,
+                                'trial_group': trial_group,
+                                **row} for row in rows)
+   
+    @classmethod
+    def delete_all(cls, **kwargs):
+        (schema.external['report_store'] & r'filepath LIKE "%linear_regression_rt%"').delete(delete_external_files=True)
+        cls.delete()
+
+
 
 @schema
 class SessionBehaviorFittedChoiceReport(dj.Computed):
@@ -261,4 +352,29 @@ def decode_logistic_reg(reg):
                    'lower_ci': reg.bias_CI[0][0],
                    'upper_ci': reg.bias_CI[1][0]})
 
+    return output
+
+
+import re
+
+def decode_linear_reg_RT(linear_reg):
+    output = []
+    for i, name in enumerate(linear_reg.x_name):
+        if 'reward' not in name:
+            output.append({
+                'variable': name,
+                'trials_back': 0,
+                'beta': linear_reg.params[i],
+                'ci_interval': linear_reg.params[i] - linear_reg.conf_int(alpha=0.05)[i, 0],
+                'p': linear_reg.pvalues[i]
+            })
+        else:
+            output.append({
+                'variable': 'reward',
+                'trials_back': int(re.search(r'\(-(\d*)\)', name).group(1)),
+                'beta': linear_reg.params[i],
+                'ci_interval': linear_reg.params[i] - linear_reg.conf_int(alpha=0.05)[i, 0],
+                'p': linear_reg.pvalues[i]
+            })   
+    
     return output

@@ -44,7 +44,11 @@ my_tables = [
             # report.SessionLevelForagingSummary,
             # report.SessionLevelForagingLickingPSTH
         #     report.UnitLevelForagingEphysReportAllInOne
-            foraging_analysis_and_export.SessionLogisticRegression
+            foraging_analysis_and_export.SessionLogisticRegression,
+            foraging_analysis_and_export.SessionBehaviorFittedChoiceReport,
+            foraging_analysis_and_export.SessionLickPSTHReport,
+            foraging_analysis_and_export.SessionWSLSReport,
+            foraging_analysis_and_export.SessionLinearRegressionRT,
          ]
         ]
 
