@@ -135,7 +135,7 @@ class SessionLinearRegressionRT(dj.Computed):
         
     
     foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)').proj()
-    key_source = foraging_sessions  & experiment.PhotostimForagingTrial  # Photostim only
+    key_source = foraging_sessions # & experiment.PhotostimForagingTrial  # Photostim only
     
     def make(self, key):
         
@@ -198,8 +198,9 @@ class SessionLinearRegressionRT(dj.Computed):
    
     @classmethod
     def delete_all(cls, **kwargs):
-        (schema.external['report_store'] & r'filepath LIKE "%linear_regression_rt%"').delete(delete_external_files=True)
+        (schema.jobs & r'table_name LIKE "%linear_regression_r_t%"').delete()
         cls.delete()
+        (schema.external['report_store'] & r'filepath LIKE "%linear_regression_rt%"').delete(delete_external_files=False)
 
 
 
