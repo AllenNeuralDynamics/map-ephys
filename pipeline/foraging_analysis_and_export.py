@@ -176,7 +176,7 @@ class SessionLinearRegressionRT(dj.Computed):
         
         fn_prefix = f'{water_res_num}_{sess_date.split("_")[0]}_{key["session"]}_'
 
-        fig.suptitle(util._get_sess_info(key))
+        # fig.suptitle(util._get_sess_info(key))
             
         fig_dict = report.save_figs(
             (fig,),
