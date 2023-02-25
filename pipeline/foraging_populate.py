@@ -112,6 +112,7 @@ def populatemytables(pool = None, cores = 9, all_rounds = range(len(my_tables)))
 
 def export_to_s3():
     to_s3.export_df_foraging_sessions()
+    to_s3.export_df_regressions()
 
 def clear_jobs():
     for schema in [foraging_model, foraging_analysis, psth_foraging, report, ephys]:

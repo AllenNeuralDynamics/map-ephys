@@ -3,7 +3,7 @@ import os
 import pandas as pd
 from pipeline import (ccf, ephys, experiment, foraging_analysis,
                       foraging_model, get_schema_name, histology, lab,
-                      psth_foraging, report)
+                      psth_foraging, report, foraging_analysis_and_export)
 
 bucket = 'aind-behavior-data'
 s3_path_root = 'Han/ephys/report/'
@@ -102,22 +102,41 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
                     ):
         df_sessions = reorder_df(df_sessions, name, order)
 
+    # export and upload
+    export_df_and_upload(df_sessions, s3_rel_path, file_name)
+    
+    return df_sessions
 
 
+
+def export_df_regressions(s3_rel_path='st_cache/'):   
+
+    df_linear_regression_rt = pd.DataFrame(foraging_analysis_and_export.SessionLinearRegressionRT.Param.fetch())
+    export_df_and_upload(df_linear_regression_rt, s3_rel_path, file_name='df_linear_regression_rt.pkl')
+
+    df_logistic_regression = pd.DataFrame((foraging_analysis_and_export.SessionLogisticRegression & 'trials_back <= 10').fetch())
+    export_df_and_upload(df_logistic_regression, s3_rel_path, file_name='df_logistic_regression.pkl')
+    
+    return
+
+    
+# ------- helpers -------
+
+def export_df_and_upload(df, s3_rel_path, file_name):
+    # save to local cache
     local_file_name = local_cache_root + file_name
     s3_file_name = s3_path_root + s3_rel_path + file_name
 
-    df_sessions.to_pickle(local_file_name)
+    df.to_pickle(local_file_name)
     size = os.path.getsize(local_file_name) / (1024 * 1024)
 
     # copy to s3
     res = upload_file(local_file_name, bucket, s3_file_name)
     if res:
-        print(f'file exported to {s3_file_name}, size = {size} MB, df_length = {len(df_sessions)}')
+        print(f'file exported to {s3_file_name}, size = {size} MB, df_length = {len(df)}')
     else:
         print('Export error!')
-    
-    return df_sessions
+    return
 
 
 def upload_file(file_name, bucket, object_name=None):
