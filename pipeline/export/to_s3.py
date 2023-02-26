@@ -81,6 +81,10 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
     df_sessions = df_sessions.merge(df_photostim.query('side == "left"').drop('side', axis=1), how='left', on=('subject_id', 'session')
                                 ).merge(df_session_stats, how='left', on=('subject_id', 'session')
                                 ).rename(columns={'location': 'photostim_location'})
+                                
+    # Remove some bad session
+    df_sessions.drop(index=df_sessions.query('h2o == "FOR10" and session == 142').index, 
+                     inplace=True)
 
     # formatting
     to_int = ['ephys_ins', 'finished', *[col for col in df_sessions if 'num' in col], 'valid_trial_start', 'valid_trial_end']
@@ -89,7 +93,7 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
         
     to_float = ['foraging_eff', *[col for col in df_sessions if 'rate' in col], 
                                 *[col for col in df_sessions if 'mean' in col],
-                                'valid_ratio']
+                                *[col for col in df_sessions if 'ratio' in col]]
     for col in to_float:
         df_sessions[col] = df_sessions[col].astype(float)
         
@@ -106,7 +110,6 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
     export_df_and_upload(df_sessions, s3_rel_path, file_name)
     
     return df_sessions
-
 
 
 def export_df_regressions(s3_rel_path='st_cache/'):   
