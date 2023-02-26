@@ -28,13 +28,16 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
                                         keep_all_rows=True, photostim_NI='IF(COUNT(trial)>0, "yes", "")')
 
     df_sessions = pd.DataFrame(((experiment.Session & foraging_sessions)
-                                * lab.WaterRestriction.proj(h2o='water_restriction_number')
+                                * lab.WaterRestriction.proj(h2o='water_restriction_number',
+                                                            weight='wr_start_weight')
+                                * lab.Subject.proj('sex')
                                 * insertion_numbers
                                 * if_histology
                                 * if_photostim_from_behav
-                                * if_photostim_from_ephys)
-                            .proj(..., '-rig', '-username', '-session_time')
-                            .fetch()
+                                * if_photostim_from_ephys
+                                # .proj(..., '-rig', '-username', '-session_time')
+                                * lab.Person.proj(user_name='fullname')
+                                ).fetch()
                                 )
 
     # df_sessions['session_date'] = pd.to_datetime(df_sessions['session_date'], format="%Y-%m-%d")
@@ -85,13 +88,29 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
                                 ).rename(columns={'location': 'photostim_location'})
     
     df_sessions['photostim_trial_ratio'] = df_sessions.photostim_trials / df_sessions.total_trials
-                                
+        
+    # Add headbar info    
+    janelia_headbar_allen = ("HH19", "HH20", *[f'KH_FB{n}' for n in np.r_[8, 9, 12:15, 22:25]])
+    janelia_headbar_janelia = (lab.WaterRestriction & (foraging_sessions & (experiment.Session & 'session_date < "2022-01-01"'))).fetch('water_restriction_number')
+    df_sessions['headbar'] = 'allen_headbar_at_allen'  # by default
+    df_sessions.loc[df_sessions.query('h2o in @janelia_headbar_allen').index, 'headbar'] = 'janelia_headbar_at_allen'
+    df_sessions.loc[df_sessions.query('h2o in @janelia_headbar_janelia').index, 'headbar'] = 'janelia_headbar_at_janelia'
+    
+    # Add age in weeks of each session
+    df_sessions['age_in_weeks'] = df_sessions.session_date - df_sessions.merge(pd.DataFrame(lab.Subject.proj('date_of_birth').fetch()
+                                                                                            ), on='subject_id', how='inner').date_of_birth
+    df_sessions.age_in_weeks = df_sessions.age_in_weeks.dt.days / 7
+    df_sessions.session_time = df_sessions.session_time / np.timedelta64(1, 'h')
+    df_sessions.rename(columns={'session_time': 'time_in_day'}, inplace=True)
+                    
     # Remove some bad session
-    df_sessions.drop(index=df_sessions.query('h2o == "FOR10" and session == 142').index, 
-                     inplace=True)
+    df_sessions.drop(index=df_sessions.query('h2o == "FOR10" and session == 142').index, inplace=True)
+    
+    # Remove unnecessary columns
+    df_sessions.drop(['username'], axis=1, inplace=True)
 
     # formatting
-    to_int = ['ephys_ins', 'finished', *[col for col in df_sessions if 'num' in col], 'valid_trial_start', 'valid_trial_end']
+    to_int = ['ephys_ins', 'finished', *[col for col in df_sessions if 'num' in col], 'valid_trial_start', 'valid_trial_end', 'total_trials']
     for col in to_int:
         df_sessions[col] = df_sessions[col].astype('Int64')
         
@@ -103,10 +122,14 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
         
     # reorder
     #df_sessions = reorder_df(df_sessions, 'h2o', 3)
-    for name, order in (('finished', 4), 
+    for name, order in (('session_date', 0),
+                        ('h2o', 1),
+                        ('session', 2),
+                        ('finished', 4), 
                         ('foraging_eff', 5),
                         ('photostim', 6),
                         ('task', 7),
+                        ('time_in_day', 15)
                     ):
         df_sessions = reorder_df(df_sessions, name, order)
 
@@ -114,6 +137,28 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
     export_df_and_upload(df_sessions, s3_rel_path, file_name)
     
     return df_sessions
+
+
+def export_df_model_fitting_param(s3_rel_path='st_cache/'):
+    # Add model fitting
+    model_ids =  [      8,   # learning rate, e-greedy
+                        11,   # tau1, tau2, softmax
+                        14,   # Hattori2019, alpha_Rew, alpha_Unr, delta, softmax
+                        15,   # 8 + ck
+                        17,   # 11 + ck
+                        20,   # Hattori 2019 + CK
+                        21,   # Hattori 2019 + CK one trial
+                 ]
+    
+    df_model_fitting = pd.DataFrame()
+    for model_id in model_ids:
+        df_this_model = pd.DataFrame((foraging_model.FittedSessionModel & f'model_id = {model_id}').fetch())
+        df_this_model_param = pd.DataFrame((foraging_model.FittedSessionModel.Param & f'model_id = {model_id}').fetch()
+                                           ).pivot(index=['subject_id', 'session'], columns='model_param', values='fitted_value')
+        df_model_fitting = df_model_fitting.append(df_this_model.merge(df_this_model_param, on=('subject_id', 'session'), how='left'))
+
+    export_df_and_upload(df_model_fitting, s3_rel_path, file_name='df_model_fitting_params.pkl')
+    return df_model_fitting
 
 
 def export_df_regressions(s3_rel_path='st_cache/'):   

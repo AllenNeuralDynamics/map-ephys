@@ -1,6 +1,7 @@
 import datajoint as dj
 from datetime import datetime
 import traceback
+import time
 
 import sys
 sys.path.append('/root/capsule/code')
@@ -111,8 +112,10 @@ def populatemytables(pool = None, cores = 9, all_rounds = range(len(my_tables)))
     # show_progress(all_rounds)
 
 def export_to_s3():
+    experiment.PhotostimForagingLocation.load_photostim_foraging_location()
     to_s3.export_df_foraging_sessions()
     to_s3.export_df_regressions()
+    to_s3.export_df_model_fitting_param()
 
 def clear_jobs():
     for schema in [foraging_model, foraging_analysis, psth_foraging, report, ephys]:
@@ -162,6 +165,7 @@ def run_with_progress(cores=None, run_count=1, print_interval=60):
         try:
             run_count -= 1
             populatemytables(pool=pool, cores=cores, all_rounds=range(len(my_tables)))
+            time.sleep(60 * 10)
         except:
             pass
     
@@ -178,6 +182,6 @@ if __name__ == '__main__' and use_ray == False:  # This is a workaround for mp.a
     # shell.logsetup('INFO')
     # shell.ingest_foraging_behavior()
     
-    run_with_progress(cores=None, run_count=-1, print_interval=60)
+    run_with_progress(cores=None, run_count=-1, print_interval=60 * 10)
     
  

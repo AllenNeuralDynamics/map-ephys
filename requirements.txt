@@ -26,3 +26,4 @@ nwbinspector
 opencv-python
 dspca
 boto3
+statannotations
