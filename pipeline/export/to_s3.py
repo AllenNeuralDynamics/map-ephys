@@ -1,6 +1,7 @@
 import boto3
 import os
 import pandas as pd
+import numpy as np
 from pipeline import (ccf, ephys, experiment, foraging_analysis,
                       foraging_model, get_schema_name, histology, lab,
                       psth_foraging, report, foraging_analysis_and_export)
@@ -41,6 +42,7 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
     # add task protocol
     df_session_stats = pd.DataFrame((foraging_analysis.SessionStats.proj(
                                                                         finished='session_pure_choices_num', 
+                                                                        total_trials = 'session_total_trial_num',
                                                                         foraging_eff='session_foraging_eff_optimal',
                                                                         foraging_eff_randomseed='session_foraging_eff_optimal_random_seed',
                                                                         reward_rate='session_hit_num / session_total_trial_num',
@@ -68,19 +70,21 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
 
 
     # add photostim meta info
+    ss = dict(how='left', on=('subject_id', 'session'))
     df_photostim = pd.DataFrame(experiment.PhotostimForagingLocation.fetch())
     df_photostim_trial = pd.DataFrame(experiment.PhotostimForagingTrial.fetch())
-    df_photostim = df_photostim.merge(df_photostim_trial.groupby(['subject_id', 'session']).power.median(), how='left', on=('subject_id', 'session')
-                                    ).merge(df_photostim_trial.groupby(['subject_id', 'session'])['bpod_timer_align_to', 'bpod_timer_offset', 'ramping_down'].agg(pd.Series.mode).astype(str), how='left', on=('subject_id', 'session'))
-    df_photostim.rename({'power': 'laser_power_median', 'ramping_down': 'laser_ramping_down', 'bpod_timer_align_to': 'laser_aligned_to'}, axis=1)
-
-    #TODO: laser ratio and median inter_S_interval
-
+    df_photostim = df_photostim.merge(df_photostim_trial.groupby(['subject_id', 'session']).power.median(), **ss
+                              ).merge(df_photostim_trial.groupby(['subject_id', 'session'])['bpod_timer_align_to', 'bpod_timer_offset', 'ramping_down'].agg(pd.Series.mode).astype(str), **ss
+                              ).merge(df_photostim_trial.groupby(['subject_id', 'session']).size().rename('photostim_trials'), **ss
+                              ).merge(df_photostim_trial.groupby(['subject_id', 'session']).trial.agg(lambda x: np.mean(np.diff(x))).rename('photostim_interval_mean'), **ss)
+    df_photostim.rename({'power': 'photostim_power_median', 'ramping_down': 'photostim_ramping_down', 'bpod_timer_align_to': 'photostim_aligned_to'}, axis=1, inplace=True)
 
     # Merge all tables
     df_sessions = df_sessions.merge(df_photostim.query('side == "left"').drop('side', axis=1), how='left', on=('subject_id', 'session')
                                 ).merge(df_session_stats, how='left', on=('subject_id', 'session')
                                 ).rename(columns={'location': 'photostim_location'})
+    
+    df_sessions['photostim_trial_ratio'] = df_sessions.photostim_trials / df_sessions.total_trials
                                 
     # Remove some bad session
     df_sessions.drop(index=df_sessions.query('h2o == "FOR10" and session == 142').index, 
