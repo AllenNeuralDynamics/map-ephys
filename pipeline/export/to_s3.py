@@ -44,7 +44,7 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
 
     # add task protocol
     df_session_stats = pd.DataFrame((foraging_analysis.SessionStats.proj(
-                                                                        finished='session_pure_choices_num', 
+                                                                        finished_trials='session_pure_choices_num', 
                                                                         total_trials = 'session_total_trial_num',
                                                                         foraging_eff='session_foraging_eff_optimal',
                                                                         foraging_eff_randomseed='session_foraging_eff_optimal_random_seed',
@@ -58,7 +58,7 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
                                                                         mean_reward_sum='session_mean_reward_sum',
                                                                         mean_reward_contrast='session_mean_reward_contrast',
                                                                         autowater_num='session_autowater_num',
-                                                                        length='session_length',
+                                                                        # session_length_in_hrs='session_length / 3600', # in hrs
                                                                         )
                                 * foraging_analysis.SessionTaskProtocol.proj(task='session_task_protocol', not_pretrain='session_real_foraging')
                                 * foraging_analysis.SessionEngagementControl.proj(valid_trial_start='start_trial',
@@ -106,26 +106,34 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
     # Remove some bad session
     df_sessions.drop(index=df_sessions.query('h2o == "FOR10" and session == 142').index, inplace=True)
     
+    # Bug fix for session length
+    session_length = pd.DataFrame(foraging_sessions.aggr(experiment.SessionTrial, session_length_in_hrs='max(start_time)').fetch())
+    session_length.length /= 3600
+    df_sessions = df_sessions.merge(session_length, on=('subject_id', 'session'), how='left')
+    
     # Remove unnecessary columns
     df_sessions.drop(['username'], axis=1, inplace=True)
 
     # formatting
-    to_int = ['ephys_ins', 'finished', *[col for col in df_sessions if 'num' in col], 'valid_trial_start', 'valid_trial_end', 'total_trials']
-    for col in to_int:
-        df_sessions[col] = df_sessions[col].astype('Int64')
+    # to_int = ['ephys_ins', 'finished', *[col for col in df_sessions if 'num' in col], 'valid_trial_start', 'valid_trial_end', 'total_trials']
+    # for col in to_int:
+    #     df_sessions[col] = df_sessions[col].astype('Int64')
         
-    to_float = ['foraging_eff', *[col for col in df_sessions if 'rate' in col], 
-                                *[col for col in df_sessions if 'mean' in col],
-                                *[col for col in df_sessions if 'ratio' in col]]
-    for col in to_float:
-        df_sessions[col] = df_sessions[col].astype(float)
+    # to_float = ['foraging_eff', *[col for col in df_sessions if 'rate' in col], 
+    #                             *[col for col in df_sessions if 'mean' in col],
+    #                             *[col for col in df_sessions if 'ratio' in col], 'length']
+    # for col in to_float:
+    #     df_sessions[col] = df_sessions[col].astype(float)
+    df_sessions = df_sessions.apply(pd.to_numeric, errors='ignore')
+
         
     # reorder
     #df_sessions = reorder_df(df_sessions, 'h2o', 3)
+
     for name, order in (('session_date', 0),
                         ('h2o', 1),
                         ('session', 2),
-                        ('finished', 4), 
+                        ('finished_trials', 4), 
                         ('foraging_eff', 5),
                         ('photostim', 6),
                         ('task', 7),
