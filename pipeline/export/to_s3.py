@@ -29,13 +29,14 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
 
     df_sessions = pd.DataFrame(((experiment.Session & foraging_sessions)
                                 * lab.WaterRestriction.proj(h2o='water_restriction_number',
-                                                            weight='wr_start_weight')
+                                                            start_weight='wr_start_weight')
                                 * lab.Subject.proj('sex')
                                 * insertion_numbers
                                 * if_histology
                                 * if_photostim_from_behav
                                 * if_photostim_from_ephys
                                 # .proj(..., '-rig', '-username', '-session_time')
+                                * experiment.SessionDetails.proj(..., water_earned='session_water_earned', water_extra='session_water_extra')
                                 * lab.Person.proj(user_name='fullname')
                                 ).fetch()
                                 )
@@ -48,6 +49,7 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
                                                                         total_trials = 'session_total_trial_num',
                                                                         foraging_eff='session_foraging_eff_optimal',
                                                                         foraging_eff_randomseed='session_foraging_eff_optimal_random_seed',
+                                                                        reward_trials='session_hit_num',
                                                                         reward_rate='session_hit_num / session_total_trial_num',
                                                                         miss_rate='session_miss_num / session_total_trial_num',
                                                                         ignore_rate='session_ignore_num / session_total_trial_num',
@@ -108,8 +110,16 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
     
     # Bug fix for session length
     session_length = pd.DataFrame(foraging_sessions.aggr(experiment.SessionTrial, session_length_in_hrs='max(start_time)').fetch())
-    session_length.length /= 3600
+    session_length.session_length_in_hrs /= 3600
+    session_length[session_length.session_length_in_hrs >= 5] = np.nan
     df_sessions = df_sessions.merge(session_length, on=('subject_id', 'session'), how='left')
+    
+    # Compute water and weight related
+    df_sessions.session_weight[df_sessions.session_weight == 0] = np.nan
+    df_sessions['relative_weight'] = df_sessions.session_weight / df_sessions.start_weight
+    df_sessions['water_total'] = df_sessions.water_earned + df_sessions.water_extra
+    df_sessions['water_per_trial_in_uL'] = df_sessions.water_earned.astype(float) / df_sessions.reward_trials.astype(int) * 1000
+    df_sessions.water_per_trial_in_uL[df_sessions.water_per_trial_in_uL >= 10] = np.nan
     
     # Remove unnecessary columns
     df_sessions.drop(['username'], axis=1, inplace=True)
