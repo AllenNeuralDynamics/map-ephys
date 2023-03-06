@@ -184,10 +184,10 @@ def export_df_regressions(s3_rel_path='st_cache/'):
     df_linear_regression_rt = pd.DataFrame(foraging_analysis_and_export.SessionLinearRegressionRT.Param.fetch())
     export_df_and_upload(df_linear_regression_rt, s3_rel_path, file_name='df_linear_regression_rt.pkl')
 
-    df_logistic_regression_hattori = pd.DataFrame((foraging_analysis_and_export.SessionLogisticRegressionHattori & 'trials_back <= 10').fetch())
+    df_logistic_regression_hattori = pd.DataFrame((foraging_analysis_and_export.SessionLogisticRegressionHattori.Param & 'trials_back <= 10').fetch())
     export_df_and_upload(df_logistic_regression_hattori, s3_rel_path, file_name='df_logistic_regression_hattori.pkl')
     
-    df_logistic_regression_su = pd.DataFrame((foraging_analysis_and_export.SessionLogisticRegressionSu & 'trials_back <= 10').fetch())
+    df_logistic_regression_su = pd.DataFrame((foraging_analysis_and_export.SessionLogisticRegressionSu.Param & 'trials_back <= 10').fetch())
     export_df_and_upload(df_logistic_regression_su, s3_rel_path, file_name='df_logistic_regression_su.pkl')
    
     return
