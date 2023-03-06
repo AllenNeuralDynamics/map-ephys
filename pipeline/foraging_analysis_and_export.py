@@ -25,23 +25,33 @@ report_cfg = dj.config['stores']['report_store']
 store_stage = pathlib.Path(report_cfg['stage'])
     
 @schema
-class SessionLogisticRegression(dj.Computed):
+class SessionLogisticRegressionHattori(dj.Computed):
     definition = """
     -> foraging_analysis.SessionTaskProtocol    # Foraging sessions
-    trial_group:  varchar(30)    # no_stim_all, ctrl, photostim, photostim_next, photostim_next5
-    beta:         varchar(30)    # RewC, UnrC, C, bias
-    trials_back:  smallint          
     ---
-    mean:     float
-    lower_ci:   float
-    upper_ci:   float
+    logistic_regression_hattori: filepath@report_store
     """
     
+    class Param(dj.Part):
+        definition = """
+        -> master
+        trial_group:  varchar(30)    # no_stim_all, ctrl, photostim, photostim_next, photostim_next5
+        beta:         varchar(30)    # RewC, UnrC, C, bias, score
+        trials_back:  smallint          
+        ---
+        mean:     float
+        lower_ci:   float
+        upper_ci:   float
+        """
+    
     foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)').proj()
-    key_source = foraging_sessions  # & experiment.PhotostimForagingTrial  # Photostim only
+    key_source = foraging_sessions  & experiment.PhotostimForagingTrial  # Photostim only
+    
+    logistic_model = descriptive_analysis.prepare_logistic
+    logistic_model_name = 'logistic_regression_hattori'
+    
     
     def make(self, key):
-        
         if_photostim = len((experiment.PhotostimForagingTrial & (experiment.BehaviorTrial & key & 'outcome != "ignore"'))) > 10
         
         if not if_photostim:
@@ -69,18 +79,13 @@ class SessionLogisticRegression(dj.Computed):
             idx_photostim_in_non_ignore_and_valid = None
         
         logistic_regs = foraging_model_plot.plot_session_logistic(choice, reward, 
-                                                                  photostim_idx=idx_photostim_in_non_ignore_and_valid, 
+                                                                  photostim_idx=idx_photostim_in_non_ignore_and_valid,
+                                                                  model=self.__class__.logistic_model,
                                                                   ax=ax)
-
-        for trial_group, logistic_reg in zip(trial_groups, logistic_regs):
-            rows = decode_logistic_reg(logistic_reg)
-            self.insert({**key,
-                         'trial_group': trial_group,
-                         **row} for row in rows)
         
         # Save figures
         water_res_num, sess_date = report.get_wr_sessdatetime(key)
-        sess_dir = store_stage / 'all_sessions' / 'logistic_regression' / water_res_num
+        sess_dir = store_stage / 'all_sessions' / self.__class__.logistic_model_name / water_res_num
         sess_dir.mkdir(parents=True, exist_ok=True)
         
         fn_prefix = f'{water_res_num}_{sess_date.split("_")[0]}_{key["session"]}_'
@@ -89,29 +94,75 @@ class SessionLogisticRegression(dj.Computed):
             
         fig_dict = report.save_figs(
             (fig,),
-            ('logistic_regression',),
+            (self.__class__.logistic_model_name,),
             sess_dir, fn_prefix)
         
-        SessionLogisticRegressionReport.insert1({**key, **fig_dict}, 
-                                                ignore_extra_fields=True,
-                                                allow_direct_insert=True)
+        # --- save fig ---
+        self.insert1({**key, **fig_dict}, 
+                     ignore_extra_fields=True)
+        
+        # --- save params ---
+        for trial_group, logistic_reg in zip(trial_groups, logistic_regs):
+            rows = decode_logistic_reg(logistic_reg)
+            
+            # Insert score from the best C
+            best_C_idx = np.where(logistic_reg.Cs_ == logistic_reg.C_)[0]
+            mean_score = np.mean(logistic_reg.scores_[1.0][:, best_C_idx])
+            CI_score = np.std(logistic_reg.scores_[1.0][:, best_C_idx]) / np.sqrt(logistic_reg.scores_[1.0].shape[0]) * 1.96
+            
+            rows.append({'beta': 'score', 'trials_back': 0, 
+                         'mean': mean_score, 
+                         'lower_ci': mean_score - CI_score,
+                         'upper_ci': mean_score + CI_score})
+                
+            self.Param.insert({**key,
+                                'trial_group': trial_group,
+                                **row} for row in rows)
 
-@schema
-class SessionLogisticRegressionReport(dj.Computed):
+
+    @classmethod
+    def delete_all(cls, **kwargs):
+        (schema.jobs & r'table_name LIKE "%session_logistic_regression_hattori%"').delete()
+        cls.delete()
+        (schema.external['report_store'] & rf'filepath LIKE "%{cls.logistic_model_name}%"').delete(delete_external_files=False)
+
+            
+        
+@schema            
+class SessionLogisticRegressionSu(dj.Computed):   # Cannot inherit here
     definition = """
-    -> experiment.Session
+    -> foraging_analysis.SessionTaskProtocol    # Foraging sessions
     ---
-    logistic_regression: filepath@report_store
-    """    
+    logistic_regression_su: filepath@report_store
+    """
+    
+    class Param(dj.Part):
+        definition = """
+        -> master
+        trial_group:  varchar(30)    # no_stim_all, ctrl, photostim, photostim_next, photostim_next5
+        beta:         varchar(30)    # RewC, UnrC, C, bias, score
+        trials_back:  smallint          
+        ---
+        mean:     float
+        lower_ci:   float
+        upper_ci:   float
+        """
+            
+    key_source = SessionLogisticRegressionHattori.key_source
+
+    logistic_model = descriptive_analysis.prepare_logistic_no_C
+    logistic_model_name = 'logistic_regression_su'
     
     def make(self, key):
-        """
-        to remove the figures: 
-        1. foraging_analysis_and_export.SessionLogisticRegressionReport.delete()
-        2. (foraging_analysis_and_export.schema.external['report_store'] & 'filepath LIKE "%logistic%"').delete(delete_external_files=True)
-        """
-        pass
+        SessionLogisticRegressionHattori.make(self, key)
+        
+    @classmethod
+    def delete_all(cls, **kwargs):
+        (schema.jobs & r'table_name LIKE "%session_logistic_regression_su%"').delete()
+        cls.delete()
+        (schema.external['report_store'] & rf'filepath LIKE "%{cls.logistic_model_name}%"').delete(delete_external_files=False)
     
+        
 
 @schema
 class SessionLinearRegressionRT(dj.Computed):
@@ -340,6 +391,10 @@ def decode_logistic_reg(reg):
     output = []
 
     for field, name in mapper.items():
+        
+        if np.all(np.isnan(getattr(reg, field))):  # Skip b_C if choice is not fitted
+            continue
+        
         for trial_back in range(reg.b_RewC.shape[1]):
             output.append({'beta': name, 
                            'trials_back': trial_back + 1,

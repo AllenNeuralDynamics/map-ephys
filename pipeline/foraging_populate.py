@@ -45,7 +45,8 @@ my_tables = [
             # report.SessionLevelForagingSummary,
             # report.SessionLevelForagingLickingPSTH
         #     report.UnitLevelForagingEphysReportAllInOne
-            foraging_analysis_and_export.SessionLogisticRegression,
+            foraging_analysis_and_export.SessionLogisticRegressionHattori,
+            foraging_analysis_and_export.SessionLogisticRegressionSu,
             foraging_analysis_and_export.SessionBehaviorFittedChoiceReport,
             foraging_analysis_and_export.SessionLickPSTHReport,
             foraging_analysis_and_export.SessionWSLSReport,
@@ -149,7 +150,7 @@ def run_with_progress(cores=None, run_count=1, print_interval=60):
     #                       kwargs=dict(pool=pool, cores=cores, all_rounds=range(len(my_tables)))
     # ) 
     
-    back_ground_tasks = [[export_to_s3, 3600 * 24],
+    back_ground_tasks = [[export_to_s3, 3600 * 3],
                          [show_progress, print_interval],
                          [clear_jobs, 3600 * 24],
                          ]    # (function, interval in s)
