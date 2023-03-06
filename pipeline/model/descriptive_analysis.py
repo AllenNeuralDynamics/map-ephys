@@ -120,6 +120,50 @@ def prepare_logistic(choice, reward, trials_back=15, selected_trial_idx=None, **
     return data, Y
 
 
+def prepare_logistic_no_C(choice, reward, trials_back=20, selected_trial_idx=None, **kwargs):
+    '''    
+    Assuming format:
+    choice = np.array([0, 1, 1, 0, ...])  # 0 = L, 1 = R
+    reward = np.array([0, 0, 0, 1, ...])  # 0 = Unrew, 1 = Reward
+    trials_back: number of trials back into history
+    selected_trial_idx = np.array([selected zero-based trial idx]): 
+        if None, use all trials; 
+        else, only look at selected trials, but using the full history!
+        e.g., p (stay at the selected trials | win at the previous trials of the selected trials) 
+        therefore, the minimum idx of selected_trials is 1 (the second trial)
+    ---
+    return: data, Y
+    '''
+    n_trials = len(choice)
+    data = []
+
+    # Encoding data
+    RewC, UnrC, C = np.zeros(n_trials), np.zeros(n_trials), np.zeros(n_trials)
+    RewC[(choice == 0) & (reward == 1)] = -1   # L rew = -1, R rew = 1, others = 0
+    RewC[(choice == 1) & (reward == 1)] = 1
+    UnrC[(choice == 0) & (reward == 0)] = -1    # L unrew = -1, R unrew = 1, others = 0
+    UnrC[(choice == 1) & (reward == 0)] = 1
+    C[choice == 0] = -1
+    C[choice == 1] = 1
+
+
+    # Select trials
+    if selected_trial_idx is None:
+        trials = range(trials_back, n_trials)
+    else:
+        trials = np.intersect1d(selected_trial_idx, range(trials_back, n_trials))
+        
+    for trial in trials:
+        data.append(np.hstack([RewC[trial - trials_back : trial],
+                            UnrC[trial - trials_back : trial], 
+                            ]))
+    data = np.array(data)
+    
+    Y = C[trials]  # Use -1/1 or 0/1?
+    
+    return data, Y
+
+
 def logistic_regression(data, Y, solver='liblinear', penalty='l2', C=1, test_size=0.10, **kwargs):
     '''
     Run one logistic regression fit
@@ -144,7 +188,7 @@ def logistic_regression(data, Y, solver='liblinear', penalty='l2', C=1, test_siz
     (logistic_reg.b_RewC, 
     logistic_reg.b_UnrC, 
     logistic_reg.b_C, 
-    logistic_reg.bias) = decode_betas(output)
+    logistic_reg.bias) = decode_betas(output, trials_back)
     
     return output, logistic_reg
 
@@ -197,14 +241,22 @@ def bootstrap(func, data, Y, n_bootstrap=1000, n_samplesize=None, **kwargs):
     return bs
     
     
-def decode_betas(coef):
+def decode_betas(coef, trials_back=20):
+    
     # Decode fitted betas
     coef = np.atleast_2d(coef)
-    trials_back = int((coef.shape[1] - 1) / 3)  # Hard-coded
+    # trials_back = int((coef.shape[1] - 1) / 3)  # Hard-coded
+    
     b_RewC = coef[:, trials_back - 1::-1]
     b_UnrC = coef[:, 2 * trials_back - 1: trials_back - 1:-1]
-    b_C = coef[:, 3 * trials_back - 1:2 * trials_back - 1:-1]
+    
+    if coef.shape[1] >= 3 * trials_back:
+        b_C = coef[:, 3 * trials_back - 1:2 * trials_back - 1:-1]
+    else:
+        b_C = np.full_like(b_UnrC, np.nan)
+    
     bias = coef[:, -1:]
+    
     return b_RewC, b_UnrC, b_C, bias
 
 
@@ -298,6 +350,8 @@ def plot_logistic_regression(logistic_reg, ax=None, ls='-o'):
 
     for name, col in plot_spec.items():
         mean = getattr(logistic_reg, name)
+        if np.all(np.isnan(mean)):
+            continue
         ax.plot(x if name != 'bias' else 1, np.atleast_2d(mean)[0, :], ls + col, label=name + ' $\pm$ CI')
 
         if if_CV:  # From cross validation
@@ -364,8 +418,6 @@ def plot_logistic_compare(logistic_to_compare,
                             fmt='o', color=col, markeredgecolor=edgecolors[k],
                             ecolor=col, lw=2, capsize=5, capthick=2)
 
-                if i == len(past_trials_to_plot): plt.xticks([0, 1, 2], labels=labels, rotation=45)
-
             ax.set(xlim=[-0.5, 0.5 + k])
             ax.axhline(y=0, linestyle='--', c='k', lw=1)
             ax.spines[['right', 'top']].set_visible(False)
@@ -373,7 +425,7 @@ def plot_logistic_compare(logistic_to_compare,
             if i == 0:
                 ax.set_title(name)
 
-            if i == len(plot_spec) - 1: 
+            if i == len(past_trials_to_plot) - 1: 
                 ax.set_xticks(range(len(labels)))
                 ax.set_xticklabels(labels, rotation=45, ha='right')
             else:
@@ -547,6 +599,11 @@ def plot_wsls(p_wslss, ax=None, edgecolors=None, labels=None):
 # --- Wrappers ---
 def do_logistic_regression(choice, reward, **kwargs):
     data, Y = prepare_logistic(choice, reward, **kwargs)
+    logistic_reg = logistic_regression_bootstrap(data, Y, **kwargs)
+    return plot_logistic_regression(logistic_reg)
+
+def do_logistic_regression_no_C(choice, reward, **kwargs):
+    data, Y = prepare_logistic_no_C(choice, reward, **kwargs)
     logistic_reg = logistic_regression_bootstrap(data, Y, **kwargs)
     return plot_logistic_regression(logistic_reg)
 

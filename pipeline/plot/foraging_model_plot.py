@@ -712,7 +712,9 @@ def plot_unit_all_in_one(key):
 from pipeline.model import descriptive_analysis
 from pipeline.foraging_model import get_session_history
 
-def plot_session_logistic(choice, reward, photostim_idx=None, n_samplesize=None, ax=None):
+def plot_session_logistic(choice, reward, 
+                          model=descriptive_analysis.prepare_logistic, # Or prepare_logistic_no_C
+                          photostim_idx=None, n_samplesize=None, ax=None):
     '''
     Generate plots for logistic regression
     If there are photostimulation trials, plot ctrl, photostim, and photostim + 1 separately
@@ -723,7 +725,7 @@ def plot_session_logistic(choice, reward, photostim_idx=None, n_samplesize=None,
             _, ax = plt.subplots(1, 1, figsize=(8, 5))
         
         # Logistic regression on all trials
-        data, Y = descriptive_analysis.prepare_logistic(choice, reward)
+        data, Y = model(choice, reward)
         logistic_reg = descriptive_analysis.logistic_regression_bootstrap(data, Y, n_bootstrap=1000, n_samplesize=n_samplesize, Cs=20)
         descriptive_analysis.plot_logistic_regression(logistic_reg, ax=ax)
         
@@ -745,28 +747,35 @@ def plot_session_logistic(choice, reward, photostim_idx=None, n_samplesize=None,
         ctrl_idx = np.setdiff1d(np.arange(len(choice)), photostim_idx)
          
         # Fit models for control, photostim, photostim_next
-        data_ctrl, Y_ctrl = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=ctrl_idx)
+        data_ctrl, Y_ctrl = model(choice, reward, selected_trial_idx=ctrl_idx)
         logistic_reg_ctrl = descriptive_analysis.logistic_regression_bootstrap(data_ctrl, Y_ctrl, n_bootstrap=1000, n_samplesize=n_samplesize, Cs=20)
         descriptive_analysis.plot_logistic_regression(logistic_reg_ctrl, ax_fit_ctrl)
         ax_fit_ctrl.get_legend().remove()
         ax_fit_ctrl.set(title=ax_fit_ctrl.get_title() + f'\ncontrol trials (n={len(ctrl_idx)})')
 
-        data_photostim, Y_photostim = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_idx)
+        data_photostim, Y_photostim = model(choice, reward, selected_trial_idx=photostim_idx)
         logistic_reg_photostim = descriptive_analysis.logistic_regression_bootstrap(data_photostim, Y_photostim, n_bootstrap=1000, n_samplesize=n_samplesize, Cs=20)
         descriptive_analysis.plot_logistic_regression(logistic_reg_photostim, ax_fit_photostim)
         ax_fit_photostim.set(title=ax_fit_photostim.get_title() + f'\nphotostim trials (n={len(photostim_idx)}, {len(photostim_idx) / len(choice):.2%})')
         ax_fit_photostim.set(yticks=[], ylabel='')
 
-        data_photostim_next, Y_photostim_next = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_idx + 1)
+        data_photostim_next, Y_photostim_next = model(choice, reward, selected_trial_idx=photostim_idx + 1)
         logistic_reg_photostim_next = descriptive_analysis.logistic_regression_bootstrap(data_photostim_next, Y_photostim_next, n_bootstrap=1000, n_samplesize=n_samplesize, Cs=20)
         #  descriptive_analysis.plot_logistic_regression(logistic_reg_photostim_next)
         
-        data_photostim_next5, Y_photostim_next5 = descriptive_analysis.prepare_logistic(choice, reward, selected_trial_idx=photostim_idx + 5)
+        data_photostim_next5, Y_photostim_next5 = model(choice, reward, selected_trial_idx=photostim_idx + 5)
         logistic_reg_photostim_next5 = descriptive_analysis.logistic_regression_bootstrap(data_photostim_next5, Y_photostim_next5, n_bootstrap=1000, n_samplesize=n_samplesize, Cs=20)
         
+        
+        if np.all(np.isnan(logistic_reg_ctrl.b_C)):
+            plot_spec = {'b_RewC': 'g', 'b_UnrC': 'r', 'bias': 'k'}
+        else:
+            plot_spec = {'b_RewC': 'g', 'b_UnrC': 'r', 'b_C': 'b', 'bias': 'k'}
+            
         descriptive_analysis.plot_logistic_compare([logistic_reg_ctrl, logistic_reg_photostim, logistic_reg_photostim_next, logistic_reg_photostim_next5], 
                                                    labels=['ctrl', 'photostim', 'photostim_next', 'photostim_5_later'], 
                                                    edgecolors=['None', 'deepskyblue', 'skyblue', 'skyblue'],
+                                                   plot_spec = plot_spec,
                                                    ax_all=ax_compare)
     
         ax.remove()

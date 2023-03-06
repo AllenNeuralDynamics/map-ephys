@@ -29,13 +29,14 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
 
     df_sessions = pd.DataFrame(((experiment.Session & foraging_sessions)
                                 * lab.WaterRestriction.proj(h2o='water_restriction_number',
-                                                            weight='wr_start_weight')
+                                                            start_weight='wr_start_weight')
                                 * lab.Subject.proj('sex')
                                 * insertion_numbers
                                 * if_histology
                                 * if_photostim_from_behav
                                 * if_photostim_from_ephys
                                 # .proj(..., '-rig', '-username', '-session_time')
+                                * experiment.SessionDetails.proj(..., water_earned='session_water_earned', water_extra='session_water_extra')
                                 * lab.Person.proj(user_name='fullname')
                                 ).fetch()
                                 )
@@ -44,10 +45,11 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
 
     # add task protocol
     df_session_stats = pd.DataFrame((foraging_analysis.SessionStats.proj(
-                                                                        finished='session_pure_choices_num', 
+                                                                        finished_trials='session_pure_choices_num', 
                                                                         total_trials = 'session_total_trial_num',
                                                                         foraging_eff='session_foraging_eff_optimal',
                                                                         foraging_eff_randomseed='session_foraging_eff_optimal_random_seed',
+                                                                        reward_trials='session_hit_num',
                                                                         reward_rate='session_hit_num / session_total_trial_num',
                                                                         miss_rate='session_miss_num / session_total_trial_num',
                                                                         ignore_rate='session_ignore_num / session_total_trial_num',
@@ -58,7 +60,7 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
                                                                         mean_reward_sum='session_mean_reward_sum',
                                                                         mean_reward_contrast='session_mean_reward_contrast',
                                                                         autowater_num='session_autowater_num',
-                                                                        length='session_length',
+                                                                        # session_length_in_hrs='session_length / 3600', # in hrs
                                                                         )
                                 * foraging_analysis.SessionTaskProtocol.proj(task='session_task_protocol', not_pretrain='session_real_foraging')
                                 * foraging_analysis.SessionEngagementControl.proj(valid_trial_start='start_trial',
@@ -106,26 +108,42 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
     # Remove some bad session
     df_sessions.drop(index=df_sessions.query('h2o == "FOR10" and session == 142').index, inplace=True)
     
+    # Bug fix for session length
+    session_length = pd.DataFrame(foraging_sessions.aggr(experiment.SessionTrial, session_length_in_hrs='max(start_time)').fetch())
+    session_length.session_length_in_hrs /= 3600
+    session_length[session_length.session_length_in_hrs >= 5] = np.nan
+    df_sessions = df_sessions.merge(session_length, on=('subject_id', 'session'), how='left')
+    
+    # Compute water and weight related
+    df_sessions.session_weight[df_sessions.session_weight == 0] = np.nan
+    df_sessions['relative_weight'] = df_sessions.session_weight / df_sessions.start_weight
+    df_sessions['water_total'] = df_sessions.water_earned + df_sessions.water_extra
+    df_sessions['water_per_trial_in_uL'] = df_sessions.water_earned.astype(float) / df_sessions.reward_trials.astype(int) * 1000
+    df_sessions.water_per_trial_in_uL[df_sessions.water_per_trial_in_uL >= 10] = np.nan
+    
     # Remove unnecessary columns
     df_sessions.drop(['username'], axis=1, inplace=True)
 
     # formatting
-    to_int = ['ephys_ins', 'finished', *[col for col in df_sessions if 'num' in col], 'valid_trial_start', 'valid_trial_end', 'total_trials']
-    for col in to_int:
-        df_sessions[col] = df_sessions[col].astype('Int64')
+    # to_int = ['ephys_ins', 'finished', *[col for col in df_sessions if 'num' in col], 'valid_trial_start', 'valid_trial_end', 'total_trials']
+    # for col in to_int:
+    #     df_sessions[col] = df_sessions[col].astype('Int64')
         
-    to_float = ['foraging_eff', *[col for col in df_sessions if 'rate' in col], 
-                                *[col for col in df_sessions if 'mean' in col],
-                                *[col for col in df_sessions if 'ratio' in col]]
-    for col in to_float:
-        df_sessions[col] = df_sessions[col].astype(float)
+    # to_float = ['foraging_eff', *[col for col in df_sessions if 'rate' in col], 
+    #                             *[col for col in df_sessions if 'mean' in col],
+    #                             *[col for col in df_sessions if 'ratio' in col], 'length']
+    # for col in to_float:
+    #     df_sessions[col] = df_sessions[col].astype(float)
+    df_sessions = df_sessions.apply(pd.to_numeric, errors='ignore')
+
         
     # reorder
     #df_sessions = reorder_df(df_sessions, 'h2o', 3)
+
     for name, order in (('session_date', 0),
                         ('h2o', 1),
                         ('session', 2),
-                        ('finished', 4), 
+                        ('finished_trials', 4), 
                         ('foraging_eff', 5),
                         ('photostim', 6),
                         ('task', 7),
@@ -166,9 +184,12 @@ def export_df_regressions(s3_rel_path='st_cache/'):
     df_linear_regression_rt = pd.DataFrame(foraging_analysis_and_export.SessionLinearRegressionRT.Param.fetch())
     export_df_and_upload(df_linear_regression_rt, s3_rel_path, file_name='df_linear_regression_rt.pkl')
 
-    df_logistic_regression = pd.DataFrame((foraging_analysis_and_export.SessionLogisticRegression & 'trials_back <= 10').fetch())
-    export_df_and_upload(df_logistic_regression, s3_rel_path, file_name='df_logistic_regression.pkl')
+    df_logistic_regression_hattori = pd.DataFrame((foraging_analysis_and_export.SessionLogisticRegressionHattori.Param & 'trials_back <= 10').fetch())
+    export_df_and_upload(df_logistic_regression_hattori, s3_rel_path, file_name='df_logistic_regression_hattori.pkl')
     
+    df_logistic_regression_su = pd.DataFrame((foraging_analysis_and_export.SessionLogisticRegressionSu.Param & 'trials_back <= 10').fetch())
+    export_df_and_upload(df_logistic_regression_su, s3_rel_path, file_name='df_logistic_regression_su.pkl')
+   
     return
 
     
