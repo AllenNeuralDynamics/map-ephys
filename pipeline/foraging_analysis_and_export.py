@@ -45,7 +45,7 @@ class SessionLogisticRegressionHattori(dj.Computed):
         """
     
     foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)').proj()
-    key_source = foraging_sessions  & experiment.PhotostimForagingTrial  # Photostim only
+    key_source = foraging_sessions #  & experiment.PhotostimForagingTrial  # Photostim only
     
     logistic_model = descriptive_analysis.prepare_logistic
     logistic_model_name = 'logistic_regression_hattori'
