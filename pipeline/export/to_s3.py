@@ -4,7 +4,7 @@ from pipeline import (ccf, ephys, experiment, foraging_analysis,
                       foraging_model, get_schema_name, histology, lab,
                       psth_foraging, report, foraging_analysis_and_export)
 
-from .to_s3_util import export_df_and_upload
+from standalone.to_s3_util import export_df_and_upload
 
 def export_df_foraging_sessions(s3_rel_path='report/st_cache/', file_name='df_sessions.pkl'):   
     # Currently good for datajoint==0.13.8
