@@ -1,19 +1,12 @@
-import boto3
-import os
 import pandas as pd
 import numpy as np
 from pipeline import (ccf, ephys, experiment, foraging_analysis,
                       foraging_model, get_schema_name, histology, lab,
                       psth_foraging, report, foraging_analysis_and_export)
 
-bucket = 'aind-behavior-data'
-s3_path_root = 'Han/ephys/report/'
+from standalone.to_s3_util import export_df_and_upload
 
-local_cache_root = '/root/capsule/results/'
-
-
-
-def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.pkl'):   
+def export_df_foraging_sessions(s3_rel_path='report/st_cache/', file_name='df_sessions.pkl'):   
     # Currently good for datajoint==0.13.8
     
     foraging_sessions = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)').proj()
@@ -157,7 +150,7 @@ def export_df_foraging_sessions(s3_rel_path='st_cache/', file_name='df_sessions.
     return df_sessions
 
 
-def export_df_model_fitting_param(s3_rel_path='st_cache/'):
+def export_df_model_fitting_param(s3_rel_path='report/st_cache/'):
     # Add model fitting
     model_ids =  [      8,   # learning rate, e-greedy
                         11,   # tau1, tau2, softmax
@@ -179,7 +172,7 @@ def export_df_model_fitting_param(s3_rel_path='st_cache/'):
     return df_model_fitting
 
 
-def export_df_regressions(s3_rel_path='st_cache/'):   
+def export_df_regressions(s3_rel_path='report/st_cache/'):   
 
     df_linear_regression_rt = pd.DataFrame(foraging_analysis_and_export.SessionLinearRegressionRT.Param.fetch())
     export_df_and_upload(df_linear_regression_rt, s3_rel_path, file_name='df_linear_regression_rt.pkl')
@@ -191,48 +184,6 @@ def export_df_regressions(s3_rel_path='st_cache/'):
     export_df_and_upload(df_logistic_regression_su, s3_rel_path, file_name='df_logistic_regression_su.pkl')
    
     return
-
-    
-# ------- helpers -------
-
-def export_df_and_upload(df, s3_rel_path, file_name):
-    # save to local cache
-    local_file_name = local_cache_root + file_name
-    s3_file_name = s3_path_root + s3_rel_path + file_name
-
-    df.to_pickle(local_file_name)
-    size = os.path.getsize(local_file_name) / (1024 * 1024)
-
-    # copy to s3
-    res = upload_file(local_file_name, bucket, s3_file_name)
-    if res:
-        print(f'file exported to {s3_file_name}, size = {size} MB, df_length = {len(df)}')
-    else:
-        print('Export error!')
-    return
-
-
-def upload_file(file_name, bucket, object_name=None):
-    """Upload a file to an S3 bucket
-
-    :param file_name: File to upload
-    :param bucket: Bucket to upload to
-    :param object_name: S3 object name. If not specified then file_name is used
-    :return: True if file was uploaded, else False
-    """
-
-    # If S3 object_name was not specified, use file_name
-    if object_name is None:
-        object_name = os.path.basename(file_name)
-
-    # Upload the file
-    s3_client = boto3.client('s3')
-    try:
-        response = s3_client.upload_file(file_name, bucket, object_name)
-    except ClientError as e:
-        logging.error(e)
-        return False
-    return True
 
 
 

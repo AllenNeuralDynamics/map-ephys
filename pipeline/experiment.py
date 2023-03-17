@@ -556,7 +556,7 @@ class PhotostimForagingLocation(dj.Imported):
                           [f'KH_FB{x:02}' for x in (12, 23, 24)] + 
                           [f'XY_{x:02}' for x in (8, 9, 10)],
                     'PALv2MD': [f'XY_{x:02}' for x in (11, 12)],
-                    'MD': [f'XY_{x:02}' for x in (16, 19)],
+                    'MD': [f'XY_{x:02}' for x in (16, 17, 19, 22, 23, 24, 25)],
                    }
 
     @classmethod
