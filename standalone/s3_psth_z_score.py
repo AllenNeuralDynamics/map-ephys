@@ -39,10 +39,10 @@ def compute_unit_firing_binned_by_latent_variable(df_aligned_spikes,
     df_aligned_spikes --> df_unit_latent_bin_firing (raw)
     '''
     
-    aligned_spikes = df_aligned_spikes.aligned_firings[align_to]
-    ts = df_aligned_spikes.times[align_to]
+    aligned_spikes = df_aligned_spikes['aligned_firings'][align_to]
+    ts = df_aligned_spikes['times'][align_to]
 
-    valid_trials = df_aligned_spikes.trials[align_to]  # may skip ignored trials
+    valid_trials = df_aligned_spikes['trials'][align_to]  # may skip ignored trials
     latent_values = df_behavior.query('trial in @valid_trials')[latent_name]
     choices =  df_behavior.query('trial in @valid_trials')['choice_lr']
     
@@ -65,7 +65,7 @@ def compute_unit_firing_binned_by_latent_variable(df_aligned_spikes,
     latent_bins[-1] = np.inf
 
     # compute average firing rate in the given time window (N_neurons * N_trials)
-    aligned_aver_firing = np.nanmean(aligned_spikes[:, :, (time_win[0] <= ts) & (ts < time_win[1])], axis=2) / df_aligned_spikes.bin_size  # spike / s
+    aligned_aver_firing = np.nanmean(aligned_spikes[:, :, (time_win[0] <= ts) & (ts < time_win[1])], axis=2) / df_aligned_spikes['bin_size']  # spike / s
 
     # split trials according to the previous and next choice
     choice_mapping = dict(  all_choice = pd.Series(True, index=choices.index),
@@ -87,12 +87,12 @@ def compute_unit_firing_binned_by_latent_variable(df_aligned_spikes,
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             df_mean = pd.DataFrame(np.array(list(map(lambda x: np.nanmean(x, axis=1), latent_binned_firing))).T, 
-                                    index=pd.MultiIndex.from_frame(pd.DataFrame(df_aligned_spikes.unit_keys)), 
+                                    index=pd.MultiIndex.from_frame(pd.DataFrame(df_aligned_spikes['unit_keys'])), 
                                     columns=pd.MultiIndex.from_tuples([(choice_group, 'mean', center) for center in latent_bin_centers], 
                                                                     names=['choice_group', 'stats', f"{latent_name}{'_z_score' if if_z_score_latent else ''}"]),
                                     )
             df_sem = pd.DataFrame(np.array(list(map(lambda x: scipy.stats.sem(x, axis=1), latent_binned_firing))).T,
-                                    index=pd.MultiIndex.from_frame(pd.DataFrame(df_aligned_spikes.unit_keys)), 
+                                    index=pd.MultiIndex.from_frame(pd.DataFrame(df_aligned_spikes['unit_keys'])), 
                                     columns=pd.MultiIndex.from_tuples([(choice_group, 'sem', center) for center in latent_bin_centers], 
                                                                     names=['choice_group', 'stats', f"{latent_name}{'_z_score' if if_z_score_latent else ''}"]),
                                     )
@@ -112,7 +112,7 @@ def compute_unit_firing_binned_by_latent_variable(df_aligned_spikes,
     df_unit_latent_bin_firing['p'] = pearson_p
     
     # compute z_score mean and std using average psth aligned to go_cue (spike / s)
-    aver_psth = np.mean(df_aligned_spikes.aligned_firings['go_cue'], axis=1) / df_aligned_spikes.bin_size
+    aver_psth = np.mean(df_aligned_spikes['aligned_firings']['go_cue'], axis=1) / df_aligned_spikes['bin_size']
     z_mean = np.mean(aver_psth, axis=1)
     z_std = np.std(aver_psth, axis=1)
     df_unit_latent_bin_firing['z_mean'] = z_mean

@@ -1,5 +1,6 @@
 import boto3
 import os
+import dill
 
 bucket = 'aind-behavior-data'
 s3_path_root = 'Han/ephys/'
@@ -7,12 +8,16 @@ s3_path_root = 'Han/ephys/'
 local_cache_root = '/root/capsule/results/'
 
 
-def export_df_and_upload(df, s3_rel_path, file_name):
+def export_df_and_upload(df, s3_rel_path, file_name, method='df_to_pickle'):
     # save to local cache
     local_file_name = local_cache_root + file_name
     s3_file_name = s3_path_root + s3_rel_path + file_name
 
-    df.to_pickle(local_file_name)
+    if method == 'df_to_pickle':
+        df.to_pickle(local_file_name)
+    elif method == 'dill_dump':
+        dill.dump(df, open(local_file_name, 'wb'))
+    
     size = os.path.getsize(local_file_name) / (1024 * 1024)
 
     # copy to s3
