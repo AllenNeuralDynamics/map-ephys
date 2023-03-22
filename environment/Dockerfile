@@ -35,3 +35,4 @@ RUN pip install -U --no-cache-dir \
     tqdm==4.64.1 \
     watchdog==2.2.1 \
     xlrd==2.0.1
+    statannotations

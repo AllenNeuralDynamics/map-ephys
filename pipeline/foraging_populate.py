@@ -1,12 +1,15 @@
 import datajoint as dj
 from datetime import datetime
 import traceback
+import time
 
 import sys
 sys.path.append('/root/capsule/code')
 
 from pipeline import (lab, get_schema_name, foraging_analysis, report, psth_foraging, 
                       foraging_model, ephys, experiment, foraging_analysis_and_export)
+from pipeline.export import to_s3
+
 import multiprocessing as mp
 from threading import Timer, Thread
 
@@ -42,7 +45,12 @@ my_tables = [
             # report.SessionLevelForagingSummary,
             # report.SessionLevelForagingLickingPSTH
         #     report.UnitLevelForagingEphysReportAllInOne
-            foraging_analysis_and_export.SessionLogisticRegression
+            foraging_analysis_and_export.SessionLogisticRegressionHattori,
+            foraging_analysis_and_export.SessionLogisticRegressionSu,
+            foraging_analysis_and_export.SessionBehaviorFittedChoiceReport,
+            foraging_analysis_and_export.SessionLickPSTHReport,
+            foraging_analysis_and_export.SessionWSLSReport,
+            foraging_analysis_and_export.SessionLinearRegressionRT,
          ]
         ]
 
@@ -104,6 +112,12 @@ def populatemytables(pool = None, cores = 9, all_rounds = range(len(my_tables)))
     # Show progress
     # show_progress(all_rounds)
 
+def export_to_s3():
+    experiment.PhotostimForagingLocation.load_photostim_foraging_location()
+    to_s3.export_df_foraging_sessions()
+    to_s3.export_df_regressions()
+    to_s3.export_df_model_fitting_param()
+
 def clear_jobs():
     for schema in [foraging_model, foraging_analysis, psth_foraging, report, ephys]:
         s = schema.schema
@@ -136,25 +150,27 @@ def run_with_progress(cores=None, run_count=1, print_interval=60):
     #                       kwargs=dict(pool=pool, cores=cores, all_rounds=range(len(my_tables)))
     # ) 
     
-    show_progress()
-    clear_jobs()
-    t2 = RepeatTimer(print_interval, show_progress)
-    t3 = RepeatTimer(3600 * 24, clear_jobs)   # clear jobs each day
-    
-    # t1.start()
-    t2.start()
-    t3.start()
-    
+    back_ground_tasks = [[export_to_s3, 3600 * 3],
+                         [show_progress, print_interval],
+                         [clear_jobs, 3600 * 24],
+                         ]    # (function, interval in s)
+
+    tasks = []
+    for task, interval in back_ground_tasks:  
+        task()          
+        tasks.append(RepeatTimer(interval, task))
+
+    [task.start() for task in tasks]
+
     while run_count:
         try:
             run_count -= 1
             populatemytables(pool=pool, cores=cores, all_rounds=range(len(my_tables)))
+            time.sleep(60 * 10)
         except:
             pass
     
-    # t1.join()
-    t2.join()
-    t3.join()
+    [task.join() for task in tasks]
     
     if pool != '':
         pool.close()
@@ -167,6 +183,6 @@ if __name__ == '__main__' and use_ray == False:  # This is a workaround for mp.a
     # shell.logsetup('INFO')
     # shell.ingest_foraging_behavior()
     
-    run_with_progress(cores=None, run_count=-1, print_interval=60)
+    run_with_progress(cores=None, run_count=-1, print_interval=60 * 10)
     
  
