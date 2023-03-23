@@ -358,6 +358,11 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                                                     unit='a.u.',
                                                     conversion=1.0)
                         
+        # Add video file mapping to scratch
+        mapping = pd.DataFrame((tracking_ingest.TrackingIngestForaging.TrackingFile * tracking.Tracking.Frame & session_key).fetch())
+        nwbfile.add_scratch(mapping, name='video_frame_mapping', description='maps each video file name to ')
+        
+                        
     print('done!')
 
     # =============================== BEHAVIOR TRIALS ===============================    
@@ -554,6 +559,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
 
 
 def export_recording(session_keys, output_dir='./', overwrite=False, validate=False):
+    dj.conn().connect()
     if not isinstance(session_keys, list):
         session_keys = [session_keys]
 
