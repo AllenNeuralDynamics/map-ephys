@@ -332,9 +332,10 @@ class TrackingIngestForaging(dj.Imported):
         
     key_source =  (experiment.Session * tracking.TrackingDevice 
                 & (experiment.BehaviorTrial & 'task LIKE "foraging%"') 
-                & 'tracking_device in ("Camera 1")'     # Restrict camera here (Camera 0: Side; Camera 1: Bottom; Camera 2: Body)
-                & 'session_date >= "2021-04-01"')
-               # & {'subject_id': 494691, 'session': 19})    
+                & 'tracking_device in ("Camera 1", "Camera 0")'     # Restrict camera here (Camera 0: Side; Camera 1: Bottom; Camera 2: Body)
+                & 'session_date >= "2021-04-01"'
+                & tracking.Tracking)
+                # & {'subject_id': 494691, 'session': 18})    
 
     camera_position_mapper = {'side': ('side_face', ),  # List of possible mapping from 'tracking_position' to text string of the file names
                               'bottom': ('bottom_face', ),
@@ -354,7 +355,12 @@ class TrackingIngestForaging(dj.Imported):
             },
             
             'side': {
-                
+             **{'pupil' + pos: ('pupil_side', {'side': pos}) for pos in ['Up', 'Down', 'Left', 'Right']}, 
+             'noseTip':     ('nose', {}),
+             'jaw':         ('jaw', {}),
+             'tongueTip':   ('tongue', {}),
+             **{'tongue' + pos: ('tongue_side', {'side': pos}) for pos in ['Mid', 'Up', 'Down']}, 
+             **{'whisker' + pos: ('whisker', {'whisker_name': pos}) for pos in ['Back', 'Mid', 'Front']}, 
             }
             }
 

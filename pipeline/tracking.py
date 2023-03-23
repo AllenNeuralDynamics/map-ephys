@@ -127,6 +127,17 @@ class Tracking(dj.Imported):
         whisker_y:            longblob        # whisker y location (px)
         whisker_likelihood:   longblob        # whisker location likelihood
         """
+        
+    class PupilSideTracking(dj.Part):
+        definition = """
+        -> Tracking
+        side:     varchar(36)   # Up, Down, Left, Right
+        ---
+        pupil_side_x:       longblob   
+        pupil_side_y:       longblob       
+        pupil_side_likelihood:    longblob 
+        """
+        
 
     @property
     def tracking_features(self):
@@ -145,7 +156,8 @@ class Tracking(dj.Imported):
                 'jaw': Tracking.JawTracking,
                 'left_paw': Tracking.LeftPawTracking,
                 'right_paw': Tracking.RightPawTracking,
-                'whisker': Tracking.WhiskerTracking,                
+                'whisker': Tracking.WhiskerTracking,     
+                'pupil_side': Tracking.PupilSideTracking,           
                 }
 
 
