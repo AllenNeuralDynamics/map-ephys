@@ -365,6 +365,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                         
         # Add video file mapping to scratch
         mapping = pd.DataFrame((tracking_ingest.TrackingIngestForaging.TrackingFile * tracking.Tracking.Frame & session_key).fetch())
+        mapping.frame_time = mapping.frame_time.apply(lambda x: x - first_trial_bitcode_start)  # (IMPORTANT: Aligned to ephys, i.e., time relative to first bitcode start)       
         nwbfile.add_scratch(mapping, name='video_frame_mapping', description='maps each video file name to ')
         
                         
