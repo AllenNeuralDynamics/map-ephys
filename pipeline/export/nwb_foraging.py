@@ -300,6 +300,10 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             stim_sites[photostim['photo_stim']] = stim_site 
 
     # =============================== TRACKING =============================== 
+    
+    q_trial_event = ephys.TrialEvent & session_key
+    first_trial_bitcode_start = float((q_trial_event & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time'))
+    
     print('exporting tracking...', end='')
     if tracking_ingest.TrackingIngestForaging & session_key:
         behav_acq = pynwb.behavior.BehavioralTimeSeries(name='BehavioralTimeSeries')
@@ -335,6 +339,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                                                                * tracking.Tracking
                                                                * tracking.Tracking.Frame
                                                                * feature_tbl
+                                                               & trk_device
                                                                & session_key
                                                                & r).fetch(
                             'trial', 'tracking_samples', 'start_time', 'stop_time', 'frame_time', *ft_attrs, order_by='trial')
@@ -348,7 +353,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                         # tracking_timestamps = np.hstack([np.arange(nsample) / trk_fs + float(trial_start_time)
                         #                                  for nsample, trial_start_time in zip(samples, start_time)])
             
-                        tracking_timestamps = np.hstack([t for t in ni_time])  # Concatenate all trials                
+                        tracking_timestamps = np.hstack([t - first_trial_bitcode_start for t in ni_time])  # Concatenate all trials (IMPORTANT: Aligned to ephys, i.e., time relative to first bitcode start)       
                         position_data = np.vstack([np.hstack(d) for d in position_data]).T
                         behav_ts_name = f'{trk_device_name}_{feature}' + (f'_{list(r.values())[0]}' if r else '')
                         behav_acq.create_timeseries(name=behav_ts_name,
@@ -433,8 +438,6 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
     nwbfile.add_acquisition(behavioral_event)
 
     # ---- behavior events
-    q_trial_event = ephys.TrialEvent & session_key
-    first_trial_bitcode_start = (q_trial_event & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time')
     q_trial_event = q_trial_event.proj(trial_event_type='trial_event_type', trial_event_time=f'trial_event_time - {first_trial_bitcode_start}')  # Align with ephys: 0 = first trial start
     unique_trial_event_type = (experiment.TrialEventType & q_trial_event).fetch('trial_event_type')
     
