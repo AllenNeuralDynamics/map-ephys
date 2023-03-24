@@ -106,6 +106,8 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
         species='mus musculus')
 
     # ==================================== EPHYS ==================================
+    
+    print('export ephys...', end='')
     # add additional columns to the electrodes table
     electrodes_query = lab.ProbeType.Electrode * lab.ElectrodeConfig.Electrode
     for additional_attribute in ['shank', 'shank_col', 'shank_row']:
@@ -273,7 +275,8 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                     **conversion_kwargs
                 )
             )
-
+    print('done!')
+    
     # =============================== PHOTO-STIMULATION ===============================
     stim_sites = {}
     photostim_query = (experiment.Photostim & (experiment.PhotostimTrial & session_key))
@@ -297,46 +300,79 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             stim_sites[photostim['photo_stim']] = stim_site 
 
     # =============================== TRACKING =============================== 
-    # if tracking.Tracking & session_key:
-    #     behav_acq = pynwb.behavior.BehavioralTimeSeries(name='BehavioralTimeSeries')
-    #     nwbfile.add_acquisition(behav_acq)
+    
+    q_trial_event = ephys.TrialEvent & session_key
+    first_trial_bitcode_start = float((q_trial_event & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time'))
+    
+    print('exporting tracking...', end='')
+    if tracking_ingest.TrackingIngestForaging & session_key:
+        behav_acq = pynwb.behavior.BehavioralTimeSeries(name='BehavioralTimeSeries')
+        nwbfile.add_acquisition(behav_acq)
 
-    #     tracking_devices = (tracking.TrackingDevice & (tracking.Tracking & session_key)).fetch(as_dict=True)
+        tracking_devices = (tracking.TrackingDevice & (tracking_ingest.TrackingIngestForaging & session_key)).fetch(as_dict=True)
 
-    #     for trk_device in tracking_devices:
-    #         trk_device_name = trk_device['tracking_device'].replace(' ', '') + '_' + trk_device['tracking_position']
-    #         trk_fs = float(trk_device['sampling_rate'])
-    #         for feature, feature_tbl in tracking.Tracking().tracking_features.items():
-    #             ft_attrs = [n for n in feature_tbl.heading.names if n not in feature_tbl.primary_key]
-    #             if feature_tbl & trk_device & session_key:
-    #                 if feature == 'WhiskerTracking':
-    #                     additional_conditions = [{'whisker_name': n} for n in
-    #                                              set((feature_tbl & trk_device & session_key).fetch(
-    #                                                  'whisker_name'))]
-    #                 else:
-    #                     additional_conditions = [{}]
-    #                 for r in additional_conditions:
-    #                     samples, start_time, *position_data = (experiment.SessionTrial
-    #                                                            * tracking.Tracking
-    #                                                            * feature_tbl
-    #                                                            & session_key
-    #                                                            & r).fetch(
-    #                         'tracking_samples', 'start_time', *ft_attrs, order_by='trial')
+        for trk_device in tracking_devices:
+            trk_device_name = trk_device['tracking_device'].replace(' ', '') + '_' + trk_device['tracking_position']
+            trk_fs = float(trk_device['sampling_rate'])
+            
+            foraging_tracking_features = tracking.Tracking().tracking_features
+            foraging_tracking_features = {x:foraging_tracking_features[x] for x in foraging_tracking_features if x[0] == x[0].lower()}
+            
+            for feature, feature_tbl in foraging_tracking_features.items():
+                ft_attrs = [n for n in feature_tbl.heading.names if n not in feature_tbl.primary_key]
+                if feature_tbl & trk_device & session_key:
+                    if feature == 'whisker':
+                        additional_conditions = [{'whisker_name': n} for n in
+                                                 set((feature_tbl & trk_device & session_key).fetch(
+                                                     'whisker_name'))]
+                    elif feature in ('tongue_side', 'pupil_side'):
+                        additional_conditions = [{'side': n} for n in
+                                                 set((feature_tbl & trk_device & session_key).fetch(
+                                                     'side'))]
+                    else:
+                        additional_conditions = [{}]
+                        
+                    for r in additional_conditions:
+                        # print(f'    ... {trk_device_name}, {feature}: {ft_attrs}, {r}')
+ 
+                        trials, samples, start_time, stop_time, ni_time, *position_data = (experiment.SessionTrial
+                                                               * tracking.Tracking
+                                                               * tracking.Tracking.Frame
+                                                               * feature_tbl
+                                                               & trk_device
+                                                               & session_key
+                                                               & r).fetch(
+                            'trial', 'tracking_samples', 'start_time', 'stop_time', 'frame_time', *ft_attrs, order_by='trial')
+        
+                        if all([sample == len(ni_t) == data.shape[0] for sample, ni_t, data in zip(samples, ni_time, position_data[0])]):
+                            pass
+                            # print('   Sanity check passed!')
+                        else:
+                            print('     !!!!!!!!!!! Wrong frame number !!!!!!!!!!!!')
 
-    #                     tracking_timestamps = np.hstack([np.arange(nsample) / trk_fs + float(trial_start_time)
-    #                                                      for nsample, trial_start_time in zip(samples, start_time)])
-    #                     position_data = np.vstack([np.hstack(d) for d in position_data])
+                        # tracking_timestamps = np.hstack([np.arange(nsample) / trk_fs + float(trial_start_time)
+                        #                                  for nsample, trial_start_time in zip(samples, start_time)])
+            
+                        tracking_timestamps = np.hstack([t - first_trial_bitcode_start for t in ni_time])  # Concatenate all trials (IMPORTANT: Aligned to ephys, i.e., time relative to first bitcode start)       
+                        position_data = np.vstack([np.hstack(d) for d in position_data]).T
+                        behav_ts_name = f'{trk_device_name}_{feature}' + (f'_{list(r.values())[0]}' if r else '')
+                        behav_acq.create_timeseries(name=behav_ts_name,
+                                                    data=position_data,
+                                                    timestamps=tracking_timestamps,  # Global NI time
+                                                    description=f'Time series for {feature} position: {tuple(ft_attrs)}',
+                                                    unit='a.u.',
+                                                    conversion=1.0)
+                        
+        # Add video file mapping to scratch
+        mapping = pd.DataFrame((tracking_ingest.TrackingIngestForaging.TrackingFile * tracking.Tracking.Frame & session_key).fetch())
+        mapping.frame_time = mapping.frame_time.apply(lambda x: x - first_trial_bitcode_start)  # (IMPORTANT: Aligned to ephys, i.e., time relative to first bitcode start)       
+        nwbfile.add_scratch(mapping, name='video_frame_mapping', description='maps each video file name to ')
+        
+                        
+    print('done!')
 
-    #                     behav_ts_name = f'{trk_device_name}_{feature}' + (f'_{r["whisker_name"]}' if r else '')
-
-    #                     behav_acq.create_timeseries(name=behav_ts_name,
-    #                                                 data=position_data,
-    #                                                 timestamps=tracking_timestamps,
-    #                                                 description=f'Time series for {feature} position: {tuple(ft_attrs)}',
-    #                                                 unit='a.u.',
-    #                                                 conversion=1.0)
-
-    # =============================== BEHAVIOR TRIALS ===============================     
+    # =============================== BEHAVIOR TRIALS ===============================    
+    print('exporting behavioral trials...', end='')
     q_photostim = (experiment.PhotostimEvent
                    * experiment.Photostim & session_key).proj(
         'photostim_event_time', 'power', 'duration')
@@ -394,15 +430,15 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             
             nwbfile.add_trial(**{k: v for k, v in trial.items() if k not in skip_adding_columns})
 
-
+    print('done!')
+            
     # =============================== BEHAVIOR TRIALS' EVENTS ===============================
-
+    
+    print('exporting behavior trial events...', end='')
     behavioral_event = pynwb.behavior.BehavioralEvents(name='BehavioralEvents')
     nwbfile.add_acquisition(behavioral_event)
 
     # ---- behavior events
-    q_trial_event = ephys.TrialEvent & session_key
-    first_trial_bitcode_start = (q_trial_event & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time')
     q_trial_event = q_trial_event.proj(trial_event_type='trial_event_type', trial_event_time=f'trial_event_time - {first_trial_bitcode_start}')  # Align with ephys: 0 = first trial start
     unique_trial_event_type = (experiment.TrialEventType & q_trial_event).fetch('trial_event_type')
     
@@ -436,7 +472,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             data=np.full_like(bitcodestart_time.astype(float), 1),
             timestamps=bitcodestart_time.astype(float) + offset_bitcodestart_to_zaberready,
             description='time (second) relative to the first trial start (aligned with ephys)') 
-        
+    
 
     # ---- action events
 
@@ -473,7 +509,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                 data=np.full_like(action_event_time_global_from_bpod.astype(float), 1),
                 timestamps=action_event_time_global_from_bpod.astype(float),
                 description='time (second) relative to the first trial start (aligned with ephys)')
-    
+    print('done!')
     
 
     # # ---- photostim events ----
@@ -527,6 +563,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
 
 
 def export_recording(session_keys, output_dir='./', overwrite=False, validate=False):
+    dj.conn().connect()
     if not isinstance(session_keys, list):
         session_keys = [session_keys]
 
