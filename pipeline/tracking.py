@@ -5,6 +5,7 @@ MAP Motion Tracking Schema
 
 import datajoint as dj
 import numpy as np
+import pandas as pd
 
 from . import experiment, lab
 from . import get_schema_name, create_schema_settings
@@ -186,7 +187,8 @@ class TrackingPupilSize(dj.Computed):
     definition = """
     -> experiment.SessionTrial
     ---
-    size:    longblob
+    polygon_area:    longblob
+    ellipse_area:    longblob
     x0:      longblob
     y0:      longblob
     a:      longblob
@@ -199,7 +201,10 @@ class TrackingPupilSize(dj.Computed):
     
     def make(self, key):
 
-        df_this_trial = (Tracking.PupilSideTracking & key).fetch(format='frame')
+        sides = ['Down', 'Left', 'Up', 'Right']
+        df_this_trial = (Tracking.PupilSideTracking & key).fetch(format='frame').reset_index()
+        df_this_trial['side'] = pd.Categorical(df_this_trial['side'], categories=sides, ordered=True)
+        df_this_trial = df_this_trial.sort_values('side')  # Important for poly_area to work
         
         results = []
         
@@ -218,25 +223,29 @@ class TrackingPupilSize(dj.Computed):
             # print('a, b, c, d, e, f =', coeffs)
             
             x0, y0, ap, bp, e, phi = cart_to_pol(coeffs)
-            
             x0 += x_0
             y0 += y_0
             
-            results.append([x0, y0, ap, bp, e, phi])
+            # Use polygon
+            polygon_area = poly_area(x.ravel(), y.ravel())
             
-        x0, y0, a, b, _, phi =  np.array(results).T
+            results.append([x0, y0, ap, bp, e, phi, polygon_area])
+            
+        x0s, y0s, aps, bps, _, phis, polygon_areas =  np.array(results).T
     
         likelihood = np.vstack(df_this_trial.pupil_side_likelihood)
         likelihood_ellipse = likelihood.prod(axis=0)
         
+        
         # Do insert
         self.insert1(dict(**key,
-                          size=np.pi * a * b,
-                          x0=x0,
-                          y0=y0,
-                          a=a,
-                          b=b,
-                          phi=phi,
+                          polygon_area=polygon_areas,
+                          ellipse_area=np.pi * aps * bps,
+                          x0=x0s,
+                          y0=y0s,
+                          a=aps,
+                          b=bps,
+                          phi=phis,
                           likelihood=likelihood_ellipse))
 
 
@@ -285,6 +294,12 @@ class TrackingQC(dj.Computed):
         self.insert(tracking_qc_list)
 
 
+
+def poly_area(x, y):
+    # https://stackoverflow.com/a/30408825
+    return 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
+
+
 def fit_ellipse(x, y):
     # Direct fit ellipse using least squares
     # https://stackoverflow.com/a/47881806
@@ -324,8 +339,8 @@ def cart_to_pol(coeffs):
 
     den = b**2 - a*c
     if den > 0:
-        print('coeffs do not represent an ellipse: b^2 - 4ac must'
-                         ' be negative!')
+        # print('coeffs do not represent an ellipse: b^2 - 4ac must'
+        #                  ' be negative!')
         return [np.nan] * 6
 
     # The location of the ellipse centre.
