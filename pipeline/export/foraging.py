@@ -52,7 +52,7 @@ def export_foraging_behavior():
 
             # Skip if npy already exists
             if file_full_path.exists():
-                print(f'Skip {h2o} because .npy already exists...')
+                print(f'Skip {file_prefix} because .npy already exists...')
                 continue        
 
             choice_history, reward_history, _ , p_reward, _ = get_session_history(session_key, remove_ignored=False)
