@@ -420,13 +420,17 @@ class IndependentVariable(dj.Lookup):
             # Model-independent (trial facts)
             ['choice_lr', 'left (0) or right (1)'],
             ['choice_ic', 'ipsi (0) or contra (1)'],
+            ['choice_ic_next', 'ipsi (0) or contra (1), next choice'],  # Next choice
             ['reward', 'miss (0) or hit (1)'],
-
+            
             # Model-dependent (latent variables)
             ['relative_action_value_lr', 'relative action value (Q_r - Q_l)'],
             ['relative_action_value_ic', 'relative action value (Q_contra - Q_ipsi)'],
             ['total_action_value', 'total action value (Q_r + Q_l)'],
-            ['rpe', 'outcome - Q_chosen']
+            ['rpe', 'outcome - Q_chosen'],
+            
+            # Autoregression and linear trend
+            ['trial_normalized', 'trial number normalized to [0, 1]'],
         ]
 
         latent_vars = foraging_model.FittedSessionModel.TrialLatentVariable.heading.secondary_attributes
@@ -434,6 +438,10 @@ class IndependentVariable(dj.Lookup):
         for side in ['left', 'right', 'ipsi', 'contra']:
             for var in (latent_vars):
                 contents.append([f'{side}_{var}', f'{side} {var}'])
+        
+        # auto regression
+        for shift in range(1, 6):
+            contents.append([f'firing_{shift}_back', f'firing rate of {shift} trials back'])
 
         return contents
 
@@ -444,7 +452,7 @@ class LinearModel(dj.Lookup):
     Define multivariate linear models for PeriodSelectivity fitting
     """
     definition = """
-    multi_linear_model: varchar(30)
+    multi_linear_model: varchar(100)
     ---
     if_intercept: tinyint   # Whether intercept is included
     """
@@ -460,7 +468,17 @@ class LinearModel(dj.Lookup):
         contents = [
             ['Q_l + Q_r + rpe', 1, ['left_action_value', 'right_action_value', 'rpe']],
             ['Q_c + Q_i + rpe', 1, ['contra_action_value', 'ipsi_action_value', 'rpe']],
-            ['Q_rel + Q_tot + rpe', 1, ['relative_action_value_ic', 'total_action_value', 'rpe']]
+            ['Q_rel + Q_tot + rpe', 1, ['relative_action_value_ic', 'total_action_value', 'rpe']],
+            ['dQ, sumQ, rpe, C*2', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
+                                       'choice_ic', 'choice_ic_next']],
+            ['dQ, sumQ, rpe, C*2, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
+                                          'choice_ic', 'choice_ic_next', 'trial_normalized']],
+            ['dQ, sumQ, rpe, C*2, R*1', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
+                                            'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 2)]]],
+            ['dQ, sumQ, rpe, C*2, R*1, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
+                                               'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 2)], 'trial_normalized']],
+            ['dQ, sumQ, rpe, C*2, R*5, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
+                                               'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 6)], 'trial_normalized']],
         ]
 
         for m in contents:
@@ -532,6 +550,8 @@ class UnitPeriodLinearFit(dj.Computed):
     model_r2=Null:  float   # r square
     model_r2_adj=Null:   float  # r square adj.
     model_p=Null:   float
+    model_bic=Null:  float
+    model_aic=Null:  float
     """
     
     key_source = (ephys.Unit & foraging_analysis.SessionTaskProtocol - experiment.PhotostimForagingTrial
@@ -566,7 +586,7 @@ class UnitPeriodLinearFit(dj.Computed):
                         key & 'model_comparison_idx=0').fetch1(behavior_model)
 
         # Parse independent variable
-        independent_variables = (LinearModel.X & key).fetch('var_name')
+        independent_variables = list((LinearModel.X & key).fetch('var_name'))
         if_intercept = (LinearModel & key).fetch1('if_intercept')
 
         # Get data
@@ -574,17 +594,35 @@ class UnitPeriodLinearFit(dj.Computed):
         period_activity = (UnitPeriodActivity & key & {'period': period}).fetch1('trial', 'firing_rates')
         
         all_iv = _get_unit_independent_variable(key, model_id=model_id)
-
+        
         # TODO Align ephys event with behavior using bitcode! (and save raw bitcodes)
         trial = all_iv.trial  # Without ignored trials
         trial_with_ephys = trial <= max(period_activity[0])
         trial = trial[trial_with_ephys]  # Truncate behavior trial to max ephys length (this assumes the first trial is aligned, see ingest.ephys)
         all_iv = all_iv[trial_with_ephys]  # Also truncate all ivs
         firing = period_activity[1][trial - 1]  # Align ephys trial and model trial (e.g., no ignored trials in model fitting)
-
-        # -- Fit --
         y = pd.DataFrame({f'{period} firing': firing})
+        
+        # Add more independent variables, if needed
+        if 'choice_ic_next' in independent_variables:
+            all_iv['choice_ic_next'] = all_iv.choice_ic.shift(-1)
+        
+        if 'trial_normalized' in independent_variables:
+            all_iv['trial_normalized'] = all_iv.trial / max(all_iv.trial)
+           
+        firing_trials_back = [v for v in independent_variables if 'firing_' in v] 
+        if len(firing_trials_back):            
+            for trials_back in firing_trials_back:
+                shift = int(trials_back.split('_')[1])
+                all_iv[trials_back] = y.shift(shift)
+        
+        # -- Fit --
         x = all_iv[independent_variables].astype(float)
+        
+        nan_indices = x.index[x.isna().any(axis=1)]
+        x.drop(nan_indices, inplace=True)
+        y.drop(nan_indices, inplace=True)
+        
         try:
             model = sm.OLS(y, sm.add_constant(x) if if_intercept else x)
             model_fit = model.fit()
@@ -597,6 +635,8 @@ class UnitPeriodLinearFit(dj.Computed):
                       'model_r2': model_fit.rsquared,
                       'model_r2_adj': model_fit.rsquared_adj,
                       'model_p': model_fit.f_pvalue,
+                      'model_bic': model_fit.bic if not np.isinf(model_fit.bic) else np.nan,
+                      'model_aic': model_fit.aic if not np.isinf(model_fit.aic) else np.nan,
                       'actual_behavior_model': model_id})
 
         for para in [p for p in model.exog_names if p!='const']:
@@ -605,7 +645,7 @@ class UnitPeriodLinearFit(dj.Computed):
                                 'beta': model_fit.params[para],
                                 'std_err': model_fit.bse[para],
                                 'p': model_fit.pvalues[para],
-                                't': model_fit.tvalues[para]
+                                't': model_fit.tvalues[para],
                                 })
 
             
