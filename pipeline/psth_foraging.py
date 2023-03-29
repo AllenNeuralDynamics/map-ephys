@@ -641,7 +641,8 @@ class UnitPeriodLinearFit(dj.Computed):
                         'model_p': model_fit.f_pvalue,
                         'model_bic': model_fit.bic if not np.isinf(model_fit.bic) else np.nan,
                         'model_aic': model_fit.aic if not np.isinf(model_fit.aic) else np.nan,
-                        'actual_behavior_model': model_id})
+                        'actual_behavior_model': model_id},
+                         skip_duplicates=True)
 
             for para in [p for p in model.exog_names if p!='const']:
                 self.Param.insert1({**key,
@@ -650,7 +651,8 @@ class UnitPeriodLinearFit(dj.Computed):
                                     'std_err': model_fit.bse[para],
                                     'p': model_fit.pvalues[para],
                                     't': model_fit.tvalues[para],
-                                    })
+                                    },
+                                   skip_duplicates=True)
 
             
 @schema
