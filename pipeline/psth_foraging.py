@@ -635,8 +635,8 @@ class UnitPeriodLinearFit(dj.Computed):
                       'model_r2': model_fit.rsquared,
                       'model_r2_adj': model_fit.rsquared_adj,
                       'model_p': model_fit.f_pvalue,
-                      'model_bic': model_fit.bic,
-                      'model_aic': model_fit.aic,
+                      'model_bic': model_fit.bic if not np.isinf(model_fit.bic) else np.nan,
+                      'model_aic': model_fit.aic if not np.isinf(model_fit.aic) else np.nan,
                       'actual_behavior_model': model_id})
 
         for para in [p for p in model.exog_names if p!='const']:
