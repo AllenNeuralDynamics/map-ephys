@@ -20,20 +20,20 @@ use_ray = False
 my_tables = [       
         # Round 0 - old behavioral tables
         [
-            foraging_analysis.TrialStats,  # Very slow
-            foraging_analysis.BlockStats,
-            foraging_analysis.SessionTaskProtocol,  #  Important for model fitting
-            foraging_analysis.SessionStats,
-            foraging_analysis.BlockFraction,
-            foraging_analysis.SessionMatching,
-            foraging_analysis.BlockEfficiency,
-            foraging_analysis.SessionEngagementControl,
+            # foraging_analysis.TrialStats,  # Very slow
+            # foraging_analysis.BlockStats,
+            # foraging_analysis.SessionTaskProtocol,  #  Important for model fitting
+            # foraging_analysis.SessionStats,
+            # foraging_analysis.BlockFraction,
+            # foraging_analysis.SessionMatching,
+            # foraging_analysis.BlockEfficiency,
+            # foraging_analysis.SessionEngagementControl,
             ],
         # Round 1 - model fitting
         [
-            foraging_model.FittedSessionModel,
-            foraging_model.FittedSessionModelComparison,
-            psth_foraging.UnitPeriodActivity,
+            # foraging_model.FittedSessionModel,
+            # foraging_model.FittedSessionModelComparison,
+            # psth_foraging.UnitPeriodActivity,
             ],
         # Round 2 - ephys
         [
@@ -45,12 +45,12 @@ my_tables = [
             # report.SessionLevelForagingSummary,
             # report.SessionLevelForagingLickingPSTH
         #     report.UnitLevelForagingEphysReportAllInOne
-            foraging_analysis_and_export.SessionLogisticRegressionHattori,
-            foraging_analysis_and_export.SessionLogisticRegressionSu,
-            foraging_analysis_and_export.SessionBehaviorFittedChoiceReport,
-            foraging_analysis_and_export.SessionLickPSTHReport,
-            foraging_analysis_and_export.SessionWSLSReport,
-            foraging_analysis_and_export.SessionLinearRegressionRT,
+            # foraging_analysis_and_export.SessionLogisticRegressionHattori,
+            # foraging_analysis_and_export.SessionLogisticRegressionSu,
+            # foraging_analysis_and_export.SessionBehaviorFittedChoiceReport,
+            # foraging_analysis_and_export.SessionLickPSTHReport,
+            # foraging_analysis_and_export.SessionWSLSReport,
+            # foraging_analysis_and_export.SessionLinearRegressionRT,
          ]
         ]
 
@@ -150,9 +150,9 @@ def run_with_progress(cores=None, run_count=1, print_interval=60):
     #                       kwargs=dict(pool=pool, cores=cores, all_rounds=range(len(my_tables)))
     # ) 
     
-    back_ground_tasks = [[export_to_s3, 3600 * 3],
+    back_ground_tasks = [#[export_to_s3, 3600 * 3],
                          [show_progress, print_interval],
-                         [clear_jobs, 3600 * 24],
+                         #[clear_jobs, 3600 * 24],
                          ]    # (function, interval in s)
 
     tasks = []
