@@ -555,7 +555,7 @@ class UnitPeriodLinearFit(dj.Computed):
     """
     
     key_source = (ephys.Unit & foraging_analysis.SessionTaskProtocol - experiment.PhotostimForagingTrial
-                 ) * LinearModelPeriodToFit * LinearModelBehaviorModelToFit * LinearModel
+                 ) * LinearModelPeriodToFit * LinearModelBehaviorModelToFit # * LinearModel
 
     class Param(dj.Part):
         definition = """
@@ -585,10 +585,6 @@ class UnitPeriodLinearFit(dj.Computed):
             model_id = (foraging_model.FittedSessionModelComparison.BestModel &
                         key & 'model_comparison_idx=0').fetch1(behavior_model)
 
-        # Parse independent variable
-        independent_variables = list((LinearModel.X & key).fetch('var_name'))
-        if_intercept = (LinearModel & key).fetch1('if_intercept')
-
         # Get data
         #  period_activity = compute_unit_period_activity(key, period)
         period_activity = (UnitPeriodActivity & key & {'period': period}).fetch1('trial', 'firing_rates')
@@ -601,52 +597,60 @@ class UnitPeriodLinearFit(dj.Computed):
         trial = trial[trial_with_ephys]  # Truncate behavior trial to max ephys length (this assumes the first trial is aligned, see ingest.ephys)
         all_iv = all_iv[trial_with_ephys]  # Also truncate all ivs
         firing = period_activity[1][trial - 1]  # Align ephys trial and model trial (e.g., no ignored trials in model fitting)
-        y = pd.DataFrame({f'{period} firing': firing})
         
-        # Add more independent variables, if needed
-        if 'choice_ic_next' in independent_variables:
-            all_iv['choice_ic_next'] = all_iv.choice_ic.shift(-1)
-        
-        if 'trial_normalized' in independent_variables:
-            all_iv['trial_normalized'] = all_iv.trial / max(all_iv.trial)
-           
-        firing_trials_back = [v for v in independent_variables if 'firing_' in v] 
-        if len(firing_trials_back):            
-            for trials_back in firing_trials_back:
-                shift = int(trials_back.split('_')[1])
-                all_iv[trials_back] = y.shift(shift)
-        
-        # -- Fit --
-        x = all_iv[independent_variables].astype(float)
-        
-        nan_indices = x.index[x.isna().any(axis=1)]
-        x.drop(nan_indices, inplace=True)
-        y.drop(nan_indices, inplace=True)
-        
-        try:
-            model = sm.OLS(y, sm.add_constant(x) if if_intercept else x)
-            model_fit = model.fit()
-        except:
-            print(f'Wrong: {key}')
-            return
+        for key_LinearModel in LinearModel.fetch('KEY'):
+            key = {**key, **key_LinearModel}
 
-        # -- Insert --
-        self.insert1({**key,
-                      'model_r2': model_fit.rsquared,
-                      'model_r2_adj': model_fit.rsquared_adj,
-                      'model_p': model_fit.f_pvalue,
-                      'model_bic': model_fit.bic if not np.isinf(model_fit.bic) else np.nan,
-                      'model_aic': model_fit.aic if not np.isinf(model_fit.aic) else np.nan,
-                      'actual_behavior_model': model_id})
+            # Parse independent variable
+            independent_variables = list((LinearModel.X & key).fetch('var_name'))
+            if_intercept = (LinearModel & key).fetch1('if_intercept')
 
-        for para in [p for p in model.exog_names if p!='const']:
-            self.Param.insert1({**key,
-                                'var_name': para,
-                                'beta': model_fit.params[para],
-                                'std_err': model_fit.bse[para],
-                                'p': model_fit.pvalues[para],
-                                't': model_fit.tvalues[para],
-                                })
+            # Add more independent variables, if needed
+            if 'choice_ic_next' in independent_variables:
+                all_iv['choice_ic_next'] = all_iv.choice_ic.shift(-1)
+            
+            if 'trial_normalized' in independent_variables:
+                all_iv['trial_normalized'] = all_iv.trial / max(all_iv.trial)
+            
+            y = pd.DataFrame({f'{period} firing': firing})
+
+            firing_trials_back = [v for v in independent_variables if 'firing_' in v] 
+            if len(firing_trials_back):            
+                for trials_back in firing_trials_back:
+                    shift = int(trials_back.split('_')[1])
+                    all_iv[trials_back] = y.shift(shift)
+            
+            # -- Fit --
+            x = all_iv[independent_variables].astype(float)
+            
+            nan_indices = x.index[x.isna().any(axis=1)]
+            x.drop(nan_indices, inplace=True)
+            y.drop(nan_indices, inplace=True)
+            
+            try:
+                model = sm.OLS(y, sm.add_constant(x) if if_intercept else x)
+                model_fit = model.fit()
+            except:
+                print(f'Wrong: {key}')
+                return
+
+            # -- Insert --
+            self.insert1({**key,
+                        'model_r2': model_fit.rsquared,
+                        'model_r2_adj': model_fit.rsquared_adj,
+                        'model_p': model_fit.f_pvalue,
+                        'model_bic': model_fit.bic if not np.isinf(model_fit.bic) else np.nan,
+                        'model_aic': model_fit.aic if not np.isinf(model_fit.aic) else np.nan,
+                        'actual_behavior_model': model_id})
+
+            for para in [p for p in model.exog_names if p!='const']:
+                self.Param.insert1({**key,
+                                    'var_name': para,
+                                    'beta': model_fit.params[para],
+                                    'std_err': model_fit.bse[para],
+                                    'p': model_fit.pvalues[para],
+                                    't': model_fit.tvalues[para],
+                                    })
 
             
 @schema
