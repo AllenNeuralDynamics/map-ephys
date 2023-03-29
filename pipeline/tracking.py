@@ -5,6 +5,7 @@ MAP Motion Tracking Schema
 
 import datajoint as dj
 import numpy as np
+import pandas as pd
 
 from . import experiment, lab
 from . import get_schema_name, create_schema_settings
@@ -172,6 +173,80 @@ class TrackedWhisker(dj.Manual):
         -> master
         -> lab.Whisker
         """
+        
+
+@schema
+class TrackingPupilSize(dj.Computed):
+    """
+    Least squares fit of pupil_side tracking
+    The output parameters:
+    ((x - x0) * cos(phi) + y * sin(phi))^2 / a^2 + ((x - x0) * sin(phi) - y * cos(phi))^2 / b^2 = 1
+    
+    size = pi * ap * bp
+    """
+    definition = """
+    -> experiment.SessionTrial
+    ---
+    polygon_area:    longblob
+    ellipse_area:    longblob
+    x0:      longblob
+    y0:      longblob
+    a:      longblob
+    b:      longblob
+    phi:    longblob
+    likelihood:   longblob   # product of likelihoods for all four sides
+    """
+    
+    key_source = experiment.SessionTrial & Tracking.PupilSideTracking
+    
+    def make(self, key):
+
+        sides = ['Down', 'Left', 'Up', 'Right']
+        df_this_trial = (Tracking.PupilSideTracking & key).fetch(format='frame').reset_index()
+        df_this_trial['side'] = pd.Categorical(df_this_trial['side'], categories=sides, ordered=True)
+        df_this_trial = df_this_trial.sort_values('side')  # Important for poly_area to work
+        
+        results = []
+        
+        # For each time point, fit ellipse
+        for i in range(len(df_this_trial.pupil_side_x.iloc[0])):
+
+            x = np.array([[a[i]] for a in df_this_trial.pupil_side_x])
+            y = np.array([[a[i]] for a in df_this_trial.pupil_side_y])
+
+            x_0 = x.mean()
+            y_0 = y.mean()
+
+            coeffs = fit_ellipse(x, y)
+
+            # print('Fitted parameters:')
+            # print('a, b, c, d, e, f =', coeffs)
+            
+            x0, y0, ap, bp, e, phi = cart_to_pol(coeffs)
+            x0 += x_0
+            y0 += y_0
+            
+            # Use polygon
+            polygon_area = poly_area(x.ravel(), y.ravel())
+            
+            results.append([x0, y0, ap, bp, e, phi, polygon_area])
+            
+        x0s, y0s, aps, bps, _, phis, polygon_areas =  np.array(results).T
+    
+        likelihood = np.vstack(df_this_trial.pupil_side_likelihood)
+        likelihood_ellipse = likelihood.prod(axis=0)
+        
+        
+        # Do insert
+        self.insert1(dict(**key,
+                          polygon_area=polygon_areas,
+                          ellipse_area=np.pi * aps * bps,
+                          x0=x0s,
+                          y0=y0s,
+                          a=aps,
+                          b=bps,
+                          phi=phis,
+                          likelihood=likelihood_ellipse))
 
 
 # ------------------------ Quality Control Metrics -----------------------
@@ -218,3 +293,103 @@ class TrackingQC(dj.Computed):
 
         self.insert(tracking_qc_list)
 
+
+
+def poly_area(x, y):
+    # https://stackoverflow.com/a/30408825
+    return 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
+
+
+def fit_ellipse(x, y):
+    # Direct fit ellipse using least squares
+    # https://stackoverflow.com/a/47881806
+    
+    X = x - np.mean(x)
+    Y = y - np.mean(y)
+
+    # Formulate and solve the least squares problem ||Ax - b ||^2
+    A = np.hstack([X**2, X * Y, Y**2, X, Y])
+    b = np.ones_like(X) * 100
+    coeffs = np.linalg.lstsq(A, b)[0].squeeze()
+    
+    return [*coeffs, -100]
+
+
+def cart_to_pol(coeffs):
+    """
+
+    Convert the cartesian conic coefficients, (a, b, c, d, e, f), to the
+    ellipse parameters, where F(x, y) = ax^2 + bxy + cy^2 + dx + ey + f = 0.
+    The returned parameters are x0, y0, ap, bp, e, phi, where (x0, y0) is the
+    ellipse centre; (ap, bp) are the semi-major and semi-minor axes,
+    respectively; e is the eccentricity; and phi is the rotation of the semi-
+    major axis from the x-axis.
+
+    """
+    # https://scipython.com/blog/direct-linear-least-squares-fitting-of-an-ellipse/
+    # We use the formulas from https://mathworld.wolfram.com/Ellipse.html
+    # which assumes a cartesian form ax^2 + 2bxy + cy^2 + 2dx + 2fy + g = 0.
+    # Therefore, rename and scale b, d and f appropriately.
+    a = coeffs[0]
+    b = coeffs[1] / 2
+    c = coeffs[2]
+    d = coeffs[3] / 2
+    f = coeffs[4] / 2
+    g = coeffs[5]
+
+    den = b**2 - a*c
+    if den > 0:
+        # print('coeffs do not represent an ellipse: b^2 - 4ac must'
+        #                  ' be negative!')
+        return [np.nan] * 6
+
+    # The location of the ellipse centre.
+    x0, y0 = (c*d - b*f) / den, (a*f - b*d) / den
+
+    num = 2 * (a*f**2 + c*d**2 + g*b**2 - 2*b*d*f - a*c*g)
+    fac = np.sqrt((a - c)**2 + 4*b**2)
+    # The semi-major and semi-minor axis lengths (these are not sorted).
+    ap = np.sqrt(num / den / (fac - a - c))
+    bp = np.sqrt(num / den / (-fac - a - c))
+
+    # Sort the semi-major and semi-minor axis lengths but keep track of
+    # the original relative magnitudes of width and height.
+    width_gt_height = True
+    if ap < bp:
+        width_gt_height = False
+        ap, bp = bp, ap
+
+    # The eccentricity.
+    r = (bp/ap)**2
+    if r > 1:
+        r = 1/r
+    e = np.sqrt(1 - r)
+
+    # The angle of anticlockwise rotation of the major-axis from x-axis.
+    if b == 0:
+        phi = 0 if a < c else np.pi/2
+    else:
+        phi = np.arctan((2.*b) / (a - c)) / 2
+        if a > c:
+            phi += np.pi/2
+    if not width_gt_height:
+        # Ensure that phi is the angle to rotate to the semi-major axis.
+        phi += np.pi/2
+    phi = phi % np.pi
+
+    return x0, y0, ap, bp, e, phi
+
+
+def get_ellipse_pts(params, npts=100, tmin=0, tmax=2*np.pi):
+    """
+    Return npts points on the ellipse described by the params = x0, y0, ap,
+    bp, e, phi for values of the parametric variable t between tmin and tmax.
+
+    """
+
+    x0, y0, ap, bp, e, phi = params
+    # A grid of the parametric variable, t.
+    t = np.linspace(tmin, tmax, npts)
+    x = x0 + ap * np.cos(t) * np.cos(phi) - bp * np.sin(t) * np.sin(phi)
+    y = y0 + ap * np.cos(t) * np.sin(phi) + bp * np.sin(t) * np.cos(phi)
+    return x, y
