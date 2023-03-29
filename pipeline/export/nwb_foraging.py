@@ -319,7 +319,11 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
 
                 foraging_tracking_features = tracking.Tracking().tracking_features
                 foraging_tracking_features = {x:foraging_tracking_features[x] for x in foraging_tracking_features if x[0] == x[0].lower()}
-
+                
+                # Add lickport
+                foraging_tracking_features['lickport'] = tracking.Tracking.LickPortTracking
+                
+                # Add feature tables
                 for feature, feature_tbl in foraging_tracking_features.items():
                     ft_attrs = [n for n in feature_tbl.heading.names if n not in feature_tbl.primary_key]
                     if feature_tbl & trk_device & session_key:
@@ -359,11 +363,20 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
                             position_data = np.vstack([np.hstack(d) for d in position_data]).T
                             behav_ts_name = f'{trk_device_name}_{feature}' + (f'_{list(r.values())[0]}' if r else '')
                             behav_acq.create_timeseries(name=behav_ts_name,
-                                                        data=position_data,
+                                                        data=position_data.astype(np.float32),  # To save some space
                                                         timestamps=tracking_timestamps,  # Global NI time
                                                         description=f'Time series for {feature} position: {tuple(ft_attrs)}',
                                                         unit='a.u.',
                                                         conversion=1.0)
+            # Export pupil size
+            trials, pupil_size = (tracking.TrackingPupilSize
+                                 & session_key).fetch('trial', 'polygon_area', order_by='trial')
+            behav_acq.create_timeseries(name='pupil_size_polygon',
+                                        data=np.hstack(pupil_size),
+                                        timestamps=[],  # Global NI time
+                                        description=f'Time series for pupil size, caculated as polygon area',
+                                        unit='a.u.',
+                                        conversion=1.0)               
 
             # Add video file mapping to scratch
             mapping = pd.DataFrame((tracking_ingest.TrackingIngestForaging.TrackingFile * tracking.Tracking.Frame & session_key).fetch())
@@ -390,6 +403,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
     model_id = 20  # Hard-coded model_id (Hattori with choice kernel)
     
     _, df_latent = _get_session_independent_variable(session_key, model_id=model_id)
+
     
     # q_trial = q_trial.aggr(
     #     q_photostim, ...,
@@ -425,10 +439,13 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
             
             trial['left_reward_prob'], trial['right_reward_prob'] = p_reward[:, trial['trial'] - 1]
             
-            if any(df_latent.trial==trial['trial']):
-                trial['left_action_value'], trial['right_action_value'], trial['rpe'] = df_latent.loc[df_latent.trial==trial['trial'], ['left_action_value', 'right_action_value', 'rpe']].values[0]
+            if 'left_action_value' in trial:
+                if any(df_latent.trial==trial['trial']):
+                    trial['left_action_value'], trial['right_action_value'], trial['rpe'] = df_latent.loc[df_latent.trial==trial['trial'], ['left_action_value', 'right_action_value', 'rpe']].values[0]
+                else:
+                    trial['left_action_value'], trial['right_action_value'], trial['rpe'] = [np.nan] * 3  # Ignored trial
             else:
-                trial['left_action_value'], trial['right_action_value'], trial['rpe'] = [np.nan] * 3  # Ignored trial
+                trial['left_action_value'], trial['right_action_value'], trial['rpe'] = [np.nan] * 3  # No model fitting results
             
             nwbfile.add_trial(**{k: v for k, v in trial.items() if k not in skip_adding_columns})
 
