@@ -430,8 +430,6 @@ class IndependentVariable(dj.Lookup):
             ['rpe', 'outcome - Q_chosen'],
             
             # Autoregression and linear trend
-            ['auto_firing_back_5', 'previous 5 trials firing'],
-            ['auto_firing_back_1', 'previous 1 trial firing'],
             ['trial_normalized', 'trial number normalized to [0, 1]'],
         ]
 
@@ -440,6 +438,10 @@ class IndependentVariable(dj.Lookup):
         for side in ['left', 'right', 'ipsi', 'contra']:
             for var in (latent_vars):
                 contents.append([f'{side}_{var}', f'{side} {var}'])
+        
+        # auto regression
+        for shift in range(1, 6):
+            contents.append([f'firing_{shift}_back', f'firing rate of {shift} trials back'])
 
         return contents
 
@@ -467,11 +469,16 @@ class LinearModel(dj.Lookup):
             ['Q_l + Q_r + rpe', 1, ['left_action_value', 'right_action_value', 'rpe']],
             ['Q_c + Q_i + rpe', 1, ['contra_action_value', 'ipsi_action_value', 'rpe']],
             ['Q_rel + Q_tot + rpe', 1, ['relative_action_value_ic', 'total_action_value', 'rpe']],
-            ['dQ, sumQ, rpe, C*2', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 'choice_ic', 'choice_ic_next']],
-            ['dQ, sumQ, rpe, C*2, R*1', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 'choice_ic', 'choice_ic_next', 'auto_firing_back_1']],
-            ['dQ, sumQ, rpe, C*2, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 'choice_ic', 'choice_ic_next', 'trial_normalized']],
-            ['dQ, sumQ, rpe, C*2, R*1, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 'choice_ic', 'choice_ic_next', 'auto_firing_back_1', 'trial_normalized']],
-            ['dQ, sumQ, rpe, C*2, R*5, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 'choice_ic', 'choice_ic_next', 'auto_firing_back_5', 'trial_normalized']],
+            ['dQ, sumQ, rpe, C*2', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
+                                       'choice_ic', 'choice_ic_next']],
+            ['dQ, sumQ, rpe, C*2, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
+                                          'choice_ic', 'choice_ic_next', 'trial_normalized']],
+            ['dQ, sumQ, rpe, C*2, R*1', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
+                                            'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 2)]]],
+            ['dQ, sumQ, rpe, C*2, R*1, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
+                                               'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 2)], 'trial_normalized']],
+            ['dQ, sumQ, rpe, C*2, R*5, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
+                                               'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 6)], 'trial_normalized']],
         ]
 
         for m in contents:
@@ -579,7 +586,7 @@ class UnitPeriodLinearFit(dj.Computed):
                         key & 'model_comparison_idx=0').fetch1(behavior_model)
 
         # Parse independent variable
-        independent_variables = (LinearModel.X & key).fetch('var_name')
+        independent_variables = list((LinearModel.X & key).fetch('var_name'))
         if_intercept = (LinearModel & key).fetch1('if_intercept')
 
         # Get data
@@ -603,13 +610,11 @@ class UnitPeriodLinearFit(dj.Computed):
         if 'trial_normalized' in independent_variables:
             all_iv['trial_normalized'] = all_iv.trial / max(all_iv.trial)
            
-        auto_regression = [v for v in independent_variables if 'auto_firing_back' in v] 
-        if len(auto_regression):            
-            independent_variables.remove(auto_regression[0])
-            for shift in range(1, int(auto_regression[0].split('_')[-1]) + 1):
-                var_name = f'firing_n-{shift}'
-                all_iv[var_name] = y.shift(shift)
-                independent_variables.append(var_name)
+        firing_trials_back = [v for v in independent_variables if 'firing_' in v] 
+        if len(firing_trials_back):            
+            for trials_back in firing_trials_back:
+                shift = int(trials_back.split('_')[1])
+                all_iv[trials_back] = y.shift(shift)
         
         # -- Fit --
         x = all_iv[independent_variables].astype(float)
