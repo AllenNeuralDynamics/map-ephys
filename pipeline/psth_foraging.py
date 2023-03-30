@@ -555,7 +555,7 @@ class UnitPeriodLinearFit(dj.Computed):
     """
     
     key_source = (ephys.Unit & foraging_analysis.SessionTaskProtocol - experiment.PhotostimForagingTrial
-                 ) * LinearModelPeriodToFit * LinearModelBehaviorModelToFit # * LinearModel
+                 ) * LinearModelBehaviorModelToFit #* LinearModelPeriodToFit # * LinearModel
 
     class Param(dj.Part):
         definition = """
@@ -571,7 +571,7 @@ class UnitPeriodLinearFit(dj.Computed):
         
     def make(self, key):
         # -- Fetech data --
-        period, behavior_model = key['period'], key['behavior_model']
+        behavior_model = key['behavior_model']
 
         # Parse period
         # No longer need this because it has been handled during UnitPeriodActivity
@@ -585,74 +585,85 @@ class UnitPeriodLinearFit(dj.Computed):
             model_id = (foraging_model.FittedSessionModelComparison.BestModel &
                         key & 'model_comparison_idx=0').fetch1(behavior_model)
 
-        # Get data
-        #  period_activity = compute_unit_period_activity(key, period)
-        period_activity = (UnitPeriodActivity & key & {'period': period}).fetch1('trial', 'firing_rates')
+        # Independent variable is shared across this unit
+        all_iv_session = _get_unit_independent_variable(key, model_id=model_id)
+
+        # Add more independent variables, if needed
+        all_iv_session['choice_ic_next'] = all_iv_session.choice_ic.shift(-1)
+        all_iv_session['trial_normalized'] = all_iv_session.trial / max(all_iv_session.trial)
+
+        trial_session = all_iv_session.trial  # Without ignored trials
+
+        period_activities = (UnitPeriodActivity & key).fetch('period', 'trial', 'firing_rates', as_dict=True)
+
+        to_insert_master = []
+        to_insert_part = []
+
+        for key_period in LinearModelPeriodToFit.fetch('KEY'):
+            key_1 = {**key, **key_period}
+            
+            period = key_period['period']
         
-        all_iv = _get_unit_independent_variable(key, model_id=model_id)
-        
-        # TODO Align ephys event with behavior using bitcode! (and save raw bitcodes)
-        trial = all_iv.trial  # Without ignored trials
-        trial_with_ephys = trial <= max(period_activity[0])
-        trial = trial[trial_with_ephys]  # Truncate behavior trial to max ephys length (this assumes the first trial is aligned, see ingest.ephys)
-        all_iv = all_iv[trial_with_ephys]  # Also truncate all ivs
-        firing = period_activity[1][trial - 1]  # Align ephys trial and model trial (e.g., no ignored trials in model fitting)
-        
-        for key_LinearModel in LinearModel.fetch('KEY'):
-            key = {**key, **key_LinearModel}
+            # Get data
+            trial_ephys = [x['trial'] for x in period_activities if x['period'] == period][0]
+            period_activity = [x['firing_rates'] for x in period_activities if x['period'] == period][0]
+                                    
+            # TODO Align ephys event with behavior using bitcode! (and save raw bitcodes)
+            trial_with_ephys = trial_session <= max(trial_ephys)
+            trial = trial_session[trial_with_ephys]  # Truncate behavior trial to max ephys length (this assumes the first trial is aligned, see ingest.ephys)
+            all_iv = all_iv_session[trial_with_ephys].copy()  # Also truncate all ivs
 
-            # Parse independent variable
-            independent_variables = list((LinearModel.X & key).fetch('var_name'))
-            if_intercept = (LinearModel & key).fetch1('if_intercept')
+            # firing
+            firing = pd.DataFrame({f'{period} firing': period_activity[trial - 1]})
 
-            # Add more independent variables, if needed
-            if 'choice_ic_next' in independent_variables:
-                all_iv['choice_ic_next'] = all_iv.choice_ic.shift(-1)
-            
-            if 'trial_normalized' in independent_variables:
-                all_iv['trial_normalized'] = all_iv.trial / max(all_iv.trial)
-            
-            y = pd.DataFrame({f'{period} firing': firing})
+            # adding firing history
+            for shift in range(1, 6):
+                all_iv[f'firing_{shift}_back'] = firing.shift(shift)
+                    
+            for key_LinearModel in LinearModel.fetch('KEY'):
+                key_2 = {**key_1, **key_LinearModel}
 
-            firing_trials_back = [v for v in independent_variables if 'firing_' in v] 
-            if len(firing_trials_back):            
-                for trials_back in firing_trials_back:
-                    shift = int(trials_back.split('_')[1])
-                    all_iv[trials_back] = y.shift(shift)
-            
-            # -- Fit --
-            x = all_iv[independent_variables].astype(float)
-            
-            nan_indices = x.index[x.isna().any(axis=1)]
-            x.drop(nan_indices, inplace=True)
-            y.drop(nan_indices, inplace=True)
-            
-            try:
-                model = sm.OLS(y, sm.add_constant(x) if if_intercept else x)
-                model_fit = model.fit()
-            except:
-                print(f'Wrong: {key}')
-                return
+                # Parse independent variable
+                independent_variables = list((LinearModel.X & key_2).fetch('var_name'))
+                if_intercept = (LinearModel & key_2).fetch1('if_intercept')
+                
+                # -- Fit --
+                x = all_iv[independent_variables].astype(float)
+                
+                nan_indices = x.index[x.isna().any(axis=1)]
+                x.drop(nan_indices, inplace=True)
+                y = firing.drop(nan_indices)
+                
+                try:
+                    model = sm.OLS(y, sm.add_constant(x) if if_intercept else x)
+                    model_fit = model.fit()
+                except:
+                    print(f'Wrong: {key_2}')
+                    return
 
-            # -- Insert --
-            self.insert1({**key,
-                        'model_r2': model_fit.rsquared,
-                        'model_r2_adj': model_fit.rsquared_adj,
-                        'model_p': model_fit.f_pvalue,
-                        'model_bic': model_fit.bic if not np.isinf(model_fit.bic) else np.nan,
-                        'model_aic': model_fit.aic if not np.isinf(model_fit.aic) else np.nan,
-                        'actual_behavior_model': model_id},
-                         skip_duplicates=True)
+                # Cache results
+                to_insert_master.append({**key_2,
+                                        'model_r2': model_fit.rsquared,
+                                        'model_r2_adj': model_fit.rsquared_adj,
+                                        'model_p': model_fit.f_pvalue,
+                                        'model_bic': model_fit.bic if not np.isinf(model_fit.bic) else np.nan,
+                                        'model_aic': model_fit.aic if not np.isinf(model_fit.aic) else np.nan,
+                                        'actual_behavior_model': model_id})
+                
+                to_insert_part.extend([{**key_2,
+                                        'var_name': para,
+                                        'beta': model_fit.params[para],
+                                        'std_err': model_fit.bse[para],
+                                        'p': model_fit.pvalues[para],
+                                        't': model_fit.tvalues[para],
+                                        } for para in [p for p in model.exog_names if p!='const']])
+            
+        # -- Bulk insert --
+        self.insert(to_insert_master,
+                    skip_duplicates=False)
 
-            for para in [p for p in model.exog_names if p!='const']:
-                self.Param.insert1({**key,
-                                    'var_name': para,
-                                    'beta': model_fit.params[para],
-                                    'std_err': model_fit.bse[para],
-                                    'p': model_fit.pvalues[para],
-                                    't': model_fit.tvalues[para],
-                                    },
-                                   skip_duplicates=True)
+        self.Param.insert(to_insert_part,
+                          skip_duplicates=False)
 
             
 @schema
