@@ -440,7 +440,7 @@ class IndependentVariable(dj.Lookup):
                 contents.append([f'{side}_{var}', f'{side} {var}'])
         
         # auto regression
-        for shift in range(1, 6):
+        for shift in range(1, 11):
             contents.append([f'firing_{shift}_back', f'firing rate of {shift} trials back'])
 
         return contents
@@ -466,9 +466,11 @@ class LinearModel(dj.Lookup):
     @classmethod
     def load(cls):
         contents = [
+            # Keep the names for backward-compatibility
             ['Q_l + Q_r + rpe', 1, ['left_action_value', 'right_action_value', 'rpe']],
             ['Q_c + Q_i + rpe', 1, ['contra_action_value', 'ipsi_action_value', 'rpe']],
-            ['Q_rel + Q_tot + rpe', 1, ['relative_action_value_ic', 'total_action_value', 'rpe']],
+            ['Q_rel + Q_tot + rpe', 1, ['relative_action_value_ic', 'total_action_value', 'rpe']],  
+            
             ['dQ, sumQ, rpe, C*2', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
                                        'choice_ic', 'choice_ic_next']],
             ['dQ, sumQ, rpe, C*2, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
@@ -478,6 +480,10 @@ class LinearModel(dj.Lookup):
             ['dQ, sumQ, rpe, C*2, R*1, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
                                                'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 2)], 'trial_normalized']],
             ['dQ, sumQ, rpe, C*2, R*5, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
+                                               'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 6)], 'trial_normalized']],
+            ['dQ, sumQ, rpe, C*2, R*10, t', 1, ['relative_action_value_ic', 'total_action_value', 'rpe', 
+                                               'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 11)], 'trial_normalized']],
+            ['contraQ, ipsiQ, rpe, C*2, R*5, t', 1, ['contra_action_value', 'ipsi_action_value', 'rpe', 
                                                'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 6)], 'trial_normalized']],
         ]
 
@@ -617,7 +623,7 @@ class UnitPeriodLinearFit(dj.Computed):
             firing = pd.DataFrame({f'{period} firing': period_activity[trial - 1]})
 
             # adding firing history
-            for shift in range(1, 6):
+            for shift in range(1, 11):
                 all_iv[f'firing_{shift}_back'] = firing.shift(shift)
                     
             for key_LinearModel in LinearModel.fetch('KEY'):
