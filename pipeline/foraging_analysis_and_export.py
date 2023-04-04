@@ -6,8 +6,11 @@ import pathlib
 from . import experiment, ephys, foraging_analysis, foraging_model, util, report
 from . import get_schema_name, create_schema_settings
 from .plot import foraging_model_plot, foraging_plot
+from pipeline import lab
 from pipeline.model import descriptive_analysis
+from pipeline.plot.foraging_model_plot import plot_mouse_fitting_results
 from .model.bandit_model_comparison import BanditModelComparison
+
 
 
 """
@@ -383,6 +386,54 @@ class SessionWSLSReport(dj.Computed):
                     ignore_extra_fields=True,
                     allow_direct_insert=True)
     
+    
+@schema
+class MouseModelFittingAllSessions(dj.Computed):
+    definition = """
+    -> lab.Subject
+    ---
+    model_all_sessions_comparison: filepath@report_store
+    model_all_sessions_pred_acc: filepath@report_store
+    model_all_sessions_fitted_para: filepath@report_store
+    """
+    
+    key_source = (lab.Subject & (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)'))  # Foraging mice 
+    
+    def make(self, key):
+        subject_id = key['subject_id']
+        fig_model_comp, fig_pred_acc, fig_fitted_par = plot_mouse_fitting_results(subject_id=subject_id, 
+                                                                                  model_comparison_idx=0, sort='aic',
+                                                                                  model_to_plot_history=20, 
+                                                                                  para_to_plot_group=[['learn_rate_rew', 'learn_rate_unrew', 'forget_rate'],
+                                                                                                    ['choice_step_size'],
+                                                                                                    ['softmax_temperature', 'choice_softmax_temperature'],
+                                                                                                    ['biasR']],
+                                                                                  if_hattori_Fig1I=False)
+
+        # save figures
+        water_res_num = (lab.WaterRestriction & key).fetch1('water_restriction_number')
+        sess_dir = store_stage / 'all_subjects' / 'model_all_sessions'
+        sess_dir.mkdir(parents=True, exist_ok=True)
+        
+        fn_prefix = f'{water_res_num}_' \
+            
+        fig_dict = report.save_figs(
+            (fig_model_comp, fig_pred_acc, fig_fitted_par),
+            ('model_all_sessions_comparison', 'model_all_sessions_pred_acc', 'model_all_sessions_fitted_para'),
+            sess_dir, fn_prefix)
+        
+        plt.close('all')
+
+        self.insert1({**key, **fig_dict}, 
+                    ignore_extra_fields=True,
+                    allow_direct_insert=True)
+        
+    @classmethod
+    def delete_all(cls, delete_external_files=False, **kwargs):
+        (schema.jobs & r'table_name LIKE "%model_fitting%"').delete()
+        cls.delete()
+        (schema.external['report_store'] & r'filepath LIKE "%model_fitting%"').delete(delete_external_files=delete_external_files)
+
     
 # -------- Helpers ----------
     

@@ -68,11 +68,11 @@ def export_foraging_behavior():
             # fig.savefig(f'./report/behavior/{h2o}/{h2o}_Session_{session_key["session"]:02}')
             
             this_subject = {'choice_history': choice_history[0],
-                                                    'reward_history': np.sum(reward_history, axis=0),
-                                                    'p_reward': p_reward,
-                                                    # 'trial_num': trial_num,
-                                                    # 'foraging_efficiency': foraging_efficiency
-                                                    }
+                            'reward_history': np.sum(reward_history, axis=0),
+                            'p_reward': p_reward,
+                            # 'trial_num': trial_num,
+                            # 'foraging_efficiency': foraging_efficiency
+                            }
             
             np.save(file_full_path, this_subject, allow_pickle=True)
             
