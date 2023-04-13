@@ -23,25 +23,24 @@ class TrialStats(dj.Computed):
     double_dipping = null: tinyint # Whether this is a double dipped trial
     """
     # Foraging sessions only
-    key_source = experiment.BehaviorTrial & 'task LIKE "foraging%"'
+    key_source = experiment.Session & (experiment.BehaviorTrial & 'task LIKE "foraging%"')
 
     def make(self, key):
         trial_stats = dict()
         
         # -- Reaction time --
-        gocue_time = (experiment.TrialEvent & key & 'trial_event_type = "go"').fetch1('trial_event_time')
-        q_all_licks_after_go_cue = (experiment.ActionEvent & key 
-                                    & 'action_event_type LIKE "%lick"'
-                                    & 'action_event_time > {}'.format(gocue_time))
-        q_reaction_time = experiment.BehaviorTrial.aggr(q_all_licks_after_go_cue,
-                                                        reaction_time='min(action_event_time)')
-        if len(q_reaction_time):
-            trial_stats['reaction_time'] = q_reaction_time.fetch1('reaction_time') - gocue_time
-            
-        # -- Double dipping --
-        trial_stats['double_dipping'] = len(np.unique(q_all_licks_after_go_cue.fetch('action_event_type'))) > 1
+        q_go_cue = dj.U('subject_id', 'session', 'trial').aggr(experiment.TrialEvent & key & 'trial_event_type = "go"', go='MIN(trial_event_time)')
+        q_trialend = dj.U('subject_id', 'session', 'trial').aggr(experiment.TrialEvent & key & 'trial_event_type = "trialend"', trialend='MIN(trial_event_time)')
+        q_choice = dj.U('subject_id', 'session', 'trial').aggr(experiment.TrialEvent & key & 'trial_event_type = "choice"', choice='MIN(trial_event_time)')
+        q_reaction_time = (q_choice * q_go_cue).proj(reaction_time='choice - go')
         
-        self.insert1({**key, **trial_stats})
+        # -- Double dipping --
+        q_all_licks_during_trial = (experiment.ActionEvent & key & 'action_event_type LIKE "%lick"'
+                                    ) * q_go_cue * q_trialend & 'action_event_time > go' & 'action_event_time < trialend'
+        q_double_dip = dj.U('subject_id', 'session', 'trial').aggr(q_all_licks_during_trial, double_dipping='COUNT(DISTINCT(action_event_type)) > 1')
+                
+        # -- Batch insert the whole session --
+        self.insert(q_reaction_time * q_double_dip)
 
         
 @schema # TODO remove bias check?
