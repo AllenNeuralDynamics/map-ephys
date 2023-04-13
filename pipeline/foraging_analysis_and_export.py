@@ -430,9 +430,9 @@ class MouseModelFittingAllSessions(dj.Computed):
         
     @classmethod
     def delete_all(cls, delete_external_files=False, **kwargs):
-        (schema.jobs & r'table_name LIKE "%model_fitting%"').delete()
+        (schema.jobs & r'table_name LIKE "%model_all_sessions%"').delete()
         cls.delete()
-        (schema.external['report_store'] & r'filepath LIKE "%model_fitting%"').delete(delete_external_files=delete_external_files)
+        (schema.external['report_store'] & r'filepath LIKE "%model_all_sessions%"').delete(delete_external_files=delete_external_files)
 
     
 # -------- Helpers ----------

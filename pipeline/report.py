@@ -1024,7 +1024,7 @@ def save_figs(figs, fig_names, dir2save, prefix):
     for fig, figname in zip(figs, fig_names):
         fig_fp = dir2save / (prefix + figname + '.png')
         fig.tight_layout()
-        fig.savefig(fig_fp, facecolor=fig.get_facecolor())
+        fig.savefig(fig_fp, facecolor=fig.get_facecolor(), bbox_inches='tight')
         print(f'Generated {fig_fp}')
         fig_dict[figname] = fig_fp.as_posix()
 
