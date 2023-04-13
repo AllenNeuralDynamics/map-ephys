@@ -428,6 +428,7 @@ class IndependentVariable(dj.Lookup):
             ['relative_action_value_ic', 'relative action value (Q_contra - Q_ipsi)'],
             ['total_action_value', 'total action value (Q_r + Q_l)'],
             ['rpe', 'outcome - Q_chosen'],
+            ['chosen_value', 'Q_chosen'],
             
             # Autoregression and linear trend
             ['trial_normalized', 'trial number normalized to [0, 1]'],
@@ -485,6 +486,28 @@ class LinearModel(dj.Lookup):
                                                'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 11)], 'trial_normalized']],
             ['contraQ, ipsiQ, rpe, C*2, R*5, t', 1, ['contra_action_value', 'ipsi_action_value', 'rpe', 
                                                'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 6)], 'trial_normalized']],
+
+            # Split rpe to reward and chosen value
+            ['dQ, sumQ, rew, chQ', 1, ['relative_action_value_ic', 'total_action_value', 'reward', 'chosen_value']],  
+            
+            ['dQ, sumQ, rew, chQ, C*2', 1, ['relative_action_value_ic', 'total_action_value', 'reward', 'chosen_value', 
+                                       'choice_ic', 'choice_ic_next']],
+            ['dQ, sumQ, rew, chQ, C*2, t', 1, ['relative_action_value_ic', 'total_action_value', 'reward', 'chosen_value', 
+                                          'choice_ic', 'choice_ic_next', 'trial_normalized']],
+            ['dQ, sumQ, rew, chQ, C*2, R*1', 1, ['relative_action_value_ic', 'total_action_value', 'reward', 'chosen_value', 
+                                            'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 2)]]],
+            ['dQ, sumQ, rew, chQ, C*2, R*1, t', 1, ['relative_action_value_ic', 'total_action_value', 'reward', 'chosen_value', 
+                                               'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 2)], 'trial_normalized']],
+            ['dQ, sumQ, rew, chQ, C*2, R*5, t', 1, ['relative_action_value_ic', 'total_action_value', 'reward', 'chosen_value', 
+                                               'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 6)], 'trial_normalized']],
+            ['dQ, sumQ, rew, chQ, C*2, R*10, t', 1, ['relative_action_value_ic', 'total_action_value', 'reward', 'chosen_value', 
+                                               'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 11)], 'trial_normalized']],
+            
+            ['contraQ, ipsiQ, rew, chQ', 1, ['contra_action_value', 'ipsi_action_value', 'reward', 'chosen_value']],
+            ['contraQ, ipsiQ, rew, chQ, C*2, R*5, t', 1, ['contra_action_value', 'ipsi_action_value', 'reward', 'chosen_value', 
+                                               'choice_ic', 'choice_ic_next', *[f'firing_{shift}_back' for shift in range(1, 6)], 'trial_normalized']],
+
+
         ]
 
         for m in contents:
@@ -543,7 +566,7 @@ class UnitPeriodActivity(dj.Computed):
                                    for (period_sel, period) in zip(period_selectivities, periods)])
         
 
-    
+
 @schema
 class UnitPeriodLinearFit(dj.Computed):
     definition = """
@@ -628,6 +651,10 @@ class UnitPeriodLinearFit(dj.Computed):
                     
             for key_LinearModel in LinearModel.fetch('KEY'):
                 key_2 = {**key_1, **key_LinearModel}
+                
+                # If already exists, manually skip
+                if self & key_2:
+                    continue
 
                 # Parse independent variable
                 independent_variables = list((LinearModel.X & key_2).fetch('var_name'))
@@ -666,10 +693,39 @@ class UnitPeriodLinearFit(dj.Computed):
             
         # -- Bulk insert --
         self.insert(to_insert_master,
+                    allow_direct_insert=True,
                     skip_duplicates=False)
 
         self.Param.insert(to_insert_part,
+                          allow_direct_insert=True,
                           skip_duplicates=False)
+
+
+@schema
+class UnitPeriodLinearFitLooper(dj.Computed):
+    '''
+    A looper just for UnitPeriodLinearFit
+    It simply loops over unit-level key source of UnitPeriodLinearFit and call its make().
+    The duplicate unit * LinearModel * Period keys are skiped inside UnitPeriodLinearFit.make().
+    
+    By this trick, I can keep the granularity of UnitPeriodLinearFit at the unit level, but still be able to add new models / periods.
+    
+    If new models are added, just delete this table and repopulate. 
+    '''
+    
+    definition = """
+    -> ephys.Unit
+    -> LinearModelBehaviorModelToFit
+    """
+    
+    key_source = UnitPeriodLinearFit.key_source
+    
+    def make(self, key):
+        UnitPeriodLinearFit().make(key)
+        
+        self.insert1(key)  # This is to ensure no duplicate populate of the current round
+    
+
 
             
 @schema

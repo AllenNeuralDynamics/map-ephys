@@ -106,12 +106,14 @@ def _get_unit_independent_variable(unit_key, model_id, var_name=None):
 
     df = q_independent_variable.fetch(format='frame', order_by='trial').reset_index()
     
-    # Compute RPE
+    # Compute chosen value and RPE
     df['rpe'] = np.nan
+    df['chosen_value'] = np.nan
     df.loc[0, 'rpe'] = df.reward[0]
     for side in ['left', 'right']:
         _idx = df[(df.choice == side) & (df.trial > 1)].index
-        df.loc[_idx, 'rpe'] = df.reward.iloc[_idx] - df[f'{side}_action_value'].iloc[_idx - 1].values
+        df.loc[_idx, 'chosen_value'] = df[f'{side}_action_value'].iloc[_idx - 1].values
+        df.loc[_idx, 'rpe'] = df.reward.iloc[_idx] - df.loc[_idx, 'chosen_value']
 
     return df if var_name is None else df[['trial', var_name]]
 
