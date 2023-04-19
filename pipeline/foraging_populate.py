@@ -51,6 +51,7 @@ my_tables = [
             foraging_analysis_and_export.SessionLickPSTHReport,
             foraging_analysis_and_export.SessionWSLSReport,
             foraging_analysis_and_export.SessionLinearRegressionRT,
+            foraging_analysis_and_export.SessionExportBehaviorNpy,
          ]
         ]
 

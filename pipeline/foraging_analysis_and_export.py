@@ -10,6 +10,7 @@ from pipeline import lab
 from pipeline.model import descriptive_analysis
 from pipeline.plot.foraging_model_plot import plot_mouse_fitting_results
 from .model.bandit_model_comparison import BanditModelComparison
+from pipeline.foraging_model import get_session_history
 
 
 
@@ -434,6 +435,64 @@ class MouseModelFittingAllSessions(dj.Computed):
         cls.delete()
         (schema.external['report_store'] & r'filepath LIKE "%model_all_sessions%"').delete(delete_external_files=delete_external_files)
 
+
+@schema
+class SessionExportBehaviorNpy(dj.Computed):
+    '''
+    Export behavioral data to .npy (Stefano)
+    '''
+    definition = """
+    -> experiment.Session
+    ---
+    behavior_npy: filepath@report_store
+    """
+    
+    key_source = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)') # Two-lickport foraging
+    
+    def make(self, key):
+        h2o = (lab.WaterRestriction & key).fetch1('water_restriction_number')
+        sess_dir = store_stage / 'all_sessions' / 'export_behavior_npy' / h2o
+        sess_dir.mkdir(parents=True, exist_ok=True)
+
+        datestr = (experiment.Session & key).fetch1('session_date').strftime(r"%Y%m%d")
+        
+        file_prefix = f'{h2o}_{datestr}_{key["session"]}'
+        file_full_path = sess_dir /f'{file_prefix}.npy'
+                
+        # Get data
+        choice_history, reward_history, _ , p_reward, _ = get_session_history(key, remove_ignored=False)
+        # Bitcode
+        q_bitcode = (experiment.TrialNote & key & 'trial_note_type = "bitcode"')
+        
+        bit_code = None
+        if len(q_bitcode):
+            bit_code = q_bitcode.fetch('trial_note')
+        
+        # Sanity check
+        all_len = [len(choice_history[0]), len(np.sum(reward_history, axis=0)), p_reward.shape[1]]
+        if bit_code is not None: all_len += [len(bit_code)]
+        if len(set(all_len)) != 1:
+            print(f'length do not match! {h2o}, {key}, choice = {all_len[0]}, reward = {all_len[1]}, p_reward = {all_len[2]}, bit_code = {all_len[3]}\n')
+        
+        this_subject = {'choice_history': choice_history[0],
+                        'reward_history': np.sum(reward_history, axis=0),
+                        'p_reward': p_reward,
+                        'bit_code': bit_code,
+                        # 'trial_num': trial_num,
+                        # 'foraging_efficiency': foraging_efficiency
+                        }
+        
+        np.save(file_full_path, this_subject, allow_pickle=True)
+        
+        self.insert1({**key, 'behavior_npy': file_full_path.as_posix()})
+        
+    @classmethod
+    def delete_all(cls, delete_external_files=False, **kwargs):
+        (schema.jobs & r'table_name LIKE "%export_behavior_npy%"').delete()
+        cls.delete()
+        (schema.external['report_store'] & r'filepath LIKE "%export_behavior_npy%"').delete(delete_external_files=delete_external_files)
+
+        
     
 # -------- Helpers ----------
     
