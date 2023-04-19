@@ -864,14 +864,14 @@ class BehaviorBpodIngest(dj.Imported):
                                             log.info(f"Warning: , len({event}) = 2 @ {subject_now}, session {key['session']}, trial {trial_num}. Fixed!")
                                         else:
                                             log.info(f"Warning: , len({event}) = 2 @ {subject_now}, session {key['session']}, trial {trial_num}. Cannot fix!")
-                                            breakpoint()
+                                            # breakpoint()
                                     elif len(wavplayer_rows) == 1:  # In case where photostim starts after go cue and terminates at the end of the trial (no active stop or ramping down)
                                         if wavplayer_rows.iloc[0] - timer4_start_bpod_time.iloc[0] < 0.001:  # The only `WavePlayer` event should be very close to TimerStart
                                             trial_end = df_behavior_trial.loc[df_behavior_trial['MSG'] == 'End', 'BPOD-INITIAL-TIME'].iloc[0]
                                             wavplayer_rows = wavplayer_rows.append(pd.Series([trial_end, trial_end]))  # photosim terminates at trial end; no ramping down
                                         else:
                                             log.info(f"Warning: , len({event}) = 1 @ {subject_now}, session {key['session']}, trial {trial_num}. Cannot fix!")
-                                            breakpoint()
+                                            # breakpoint()
                                     on_bpod_time, down_bpod_time, off_bpod_time = wavplayer_rows.iloc[0:3]
 
                                 elif key['session_date'] < date(2022, 5, 15):  # Old protocol: bpod trial starts at the middle of ITI
@@ -880,7 +880,7 @@ class BehaviorBpodIngest(dj.Imported):
                                     if len(timer4_start):   # The first three event_row should be this ITI before
                                         if len(wavplayer_rows) < 3: 
                                             print(f'Warning: has timer4 but len(waveplayer_row) < 3!!')
-                                            breakpoint()
+                                            # breakpoint()
                                             continue
                                         if (last_iti_after_on_PC_time is not None and
                                             last_iti_after_off_PC_time is None and
