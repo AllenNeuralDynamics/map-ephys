@@ -37,7 +37,7 @@ my_tables = [
             ],
         # Round 2 - ephys
         [
-            psth_foraging.UnitPeriodLinearFit,
+            psth_foraging.UnitPeriodLinearFitLooper,
             # ephys.UnitWaveformWidth,
         ],
         # Round 3 - reports
