@@ -399,13 +399,12 @@ def load_meta_foraging():
             
             if len(lab.Subject & f'subject_id = {item["animal#"]}'):
                 duplicate_subject_num += 1
-                continue
-
-            try:
-                lab.Subject().insert1(subjectdata)
-                print('  added subject: ', item['animal#'])
-            except:
-                print(f'Error in adding subject: {subjectdata}')
+            else:
+                try:
+                    lab.Subject().insert1(subjectdata)
+                    print('  added subject: ', item['animal#'])
+                except:
+                    print(f'Error in adding subject: {subjectdata}')
 
                 # print('  duplicate. animal :',item['animal#'], ' already exists')
                 
@@ -432,12 +431,15 @@ def load_meta_foraging():
                         'wr_start_date': df_wr['Date'][df_wr['Date'].first_valid_index()],
                         'wr_start_weight': df_wr['Weight'][df_wr['Weight'].first_valid_index()],
                         }
-                                
-                try:
-                    lab.WaterRestriction().insert1(wrdata)
-                    print('  added WR: ', item['ID'])
-                except:
-                    print(f'Error in adding h2o: {wrdata}')
+                 
+                if len(lab.WaterRestriction & f'subject_id = {item["animal#"]}'):
+                    pass
+                else:         
+                    try:
+                        lab.WaterRestriction().insert1(wrdata)
+                        print('  added WR: ', item['ID'])
+                    except:
+                        print(f'Error in adding h2o: {wrdata}')
                     # print('  duplicate. water restriction:', item['ID'], ' already exists')
                     
     print(f'  {duplicate_subject_num} subjects already exist')
