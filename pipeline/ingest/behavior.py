@@ -421,7 +421,7 @@ class BehaviorBpodIngest(dj.Imported):
                                          water_restriction_number NOT LIKE "dl%" AND 
                                          water_restriction_number NOT LIKE "SC%" AND
                                          water_restriction_number NOT LIKE "tw%"'''
-                                        #   & 'water_restriction_number = "XY_14"'
+                                        #  & 'water_restriction_number = "XY_22"'
                                       ).fetch(
             'water_restriction_number', 'subject_id'))}
 
@@ -979,15 +979,15 @@ class BehaviorBpodIngest(dj.Imported):
                         # assert side_code == side_code_from_stdout.astype(int).iloc[0], 'ERROR: stim_sides from WavePlayer != side from stdout message'
                         if side_code != side_code_from_stdout.astype(int).iloc[0]:
                             this_row['side'] = side_code_from_stdout.astype(int).iloc[0]  # Override
-                            log.warning(f'laser side conflict:  from WavePlayer stamps = {side_code}, from message = {side_code_from_stdout.astype(int).iloc[0]}')
+                            log.warning(f'laser side conflict:  from WavePlayer stamps = {side_code}, from text = {side_code_from_stdout.astype(int).iloc[0]}, override with text!')
                         
-                    ramping_down_from_stdout = self._get_message(df_behavior_session, 'laser ramping down')
+                    ramping_down_from_stdout = self._get_message(df_behavior_trial, 'laser ramping down')
                     if len(ramping_down_from_stdout):
                         if this_row['bpod_timer_align_to'] not in ('whole trial', 'after go cue'):  # Otherwise it's a hard stop
                             # assert ramping_down == float(ramping_down_from_stdout.iloc[0]), 'ERROR: ramping down not consistent!!'
                             if ramping_down != float(ramping_down_from_stdout.iloc[0]):
                                 this_row['ramping_down'] = float(ramping_down_from_stdout.iloc[0])
-                                log.warning(f'ramping down not consistent, from time markers = {ramping_down}, from text = {float(ramping_down_from_stdout.iloc[0])}')
+                                log.warning(f'ramping down not consistent, from WavePlayer stamps = {ramping_down}, from text = {float(ramping_down_from_stdout.iloc[0])}, override with text!')
                     
                     rows['photostim_foraging_trial'].extend([this_row])
                 
