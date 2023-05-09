@@ -302,7 +302,10 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
     # =============================== TRACKING =============================== 
     
     q_trial_event = ephys.TrialEvent & session_key
-    first_trial_bitcode_start = float((q_trial_event & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time'))
+    if_exists_ephys = len(q_trial_event) > 0
+    
+    if if_exists_ephys:
+        first_trial_bitcode_start = float((q_trial_event & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time'))
     
     if if_dlc_tracking:
 
@@ -388,29 +391,27 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
 
     # =============================== BEHAVIOR TRIALS ===============================    
     print('exporting behavioral trials...', end='')
-    q_photostim = (experiment.PhotostimEvent
-                   * experiment.Photostim & session_key).proj(
-        'photostim_event_time', 'power', 'duration')
-    q_trial = experiment.SessionTrial * experiment.BehaviorTrial & session_key 
+    
+    q_trial = (experiment.SessionTrial * experiment.BehaviorTrial & session_key).proj(..., '-trial_uid', '-trial_instruction')
     q_trial *= experiment.WaterPortChoice.proj(choice='water_port')  # Add choice
     
-    # reward schedule
-    q_p_reward = experiment.BehaviorTrial.proj() * experiment.SessionBlock.BlockTrial * experiment.SessionBlock.WaterPortRewardProbability & session_key
-    p_reward = np.vstack([(q_p_reward & 'water_port="left"').fetch('reward_probability', order_by='trial').astype(float),
-                          (q_p_reward & 'water_port="right"').fetch('reward_probability', order_by='trial').astype(float)])
- 
+    # add p_reward
+    q_trial *= dj.U('subject_id', 'session', 'trial').aggr(experiment.SessionBlock.BlockTrial * experiment.SessionBlock.WaterPortRewardProbability & 'water_port="right"' & session_key,
+                                                           right_reward_prob='MIN(reward_probability)')
+    q_trial *= dj.U('subject_id', 'session', 'trial').aggr(experiment.SessionBlock.BlockTrial * experiment.SessionBlock.WaterPortRewardProbability & 'water_port="left"' & session_key,
+                                                           left_reward_prob='MIN(reward_probability)')
+    # add bitcode
+    q_trial = q_trial.join(dj.U('subject_id', 'session', 'trial').aggr(experiment.TrialNote & session_key & 'trial_note_type = "bitcode"',
+                                                           trial_bit_code='MIN(trial_note)'), ..., left=True)
     
-    model_id = 20  # Hard-coded model_id (Hattori with choice kernel)
-    
-    _, df_latent = _get_session_independent_variable(session_key, model_id=model_id)
+    # add photostimulation
+    photostim_field = [n for n in experiment.PhotostimForagingTrial.heading  if n not in experiment.PhotostimForagingTrial .primary_key]
+    q_trial = q_trial.join(dj.U('subject_id', 'session', 'trial').aggr(experiment.PhotostimForagingTrial & session_key, 
+                                                                            **{f'photostim_{n}': f'MIN({n})' for n in photostim_field}), left=True)
 
-    
-    # q_trial = q_trial.aggr(
-    #     q_photostim, ...,
-    #     photostim_onset='IFNULL(GROUP_CONCAT(photostim_event_time SEPARATOR ", "), "N/A")',
-    #     photostim_power='IFNULL(GROUP_CONCAT(power SEPARATOR ", "), "N/A")',
-    #     photostim_duration='IFNULL(GROUP_CONCAT(duration SEPARATOR ", "), "N/A")',
-    #     keep_all_rows=True)
+    # Model fitting    
+    model_id = 20  # Hard-coded model_id (Hattori with choice kernel)
+    _, df_latent = _get_session_independent_variable(session_key, model_id=model_id)
 
     skip_adding_columns = experiment.Session.primary_key 
 
@@ -425,28 +426,29 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
         for column in trial_columns.values():
             nwbfile.add_trial_column(**column)
       
-        nwbfile.add_trial_column(name='left_reward_prob', description=f'reward refill prob. of the left port')
-        nwbfile.add_trial_column(name='right_reward_prob', description=f'reward refill prob. of the right port')
+        # Things that will come from df_latent, not q_trial
         nwbfile.add_trial_column(name='left_action_value', description=f'left action value after each trial, from model {model_id}')
         nwbfile.add_trial_column(name='right_action_value', description=f'right action value after each trial, from model {model_id}')
         nwbfile.add_trial_column(name='rpe', description=f'reward prediction error of each trial, from model {model_id}')
-
+        
         # Add entries to the trial-table
         for trial in q_trial.fetch(as_dict=True):
+            
+            # Some special treatments
             trial['start_time'], trial['stop_time'] = float(trial['start_time']), float(trial['stop_time'])
-            if trial['choice'] is None:
-                trial['choice'] = 'null'
             
-            trial['left_reward_prob'], trial['right_reward_prob'] = p_reward[:, trial['trial'] - 1]
-            
-            if 'left_action_value' in trial:
+            for f in trial:
+                if trial[f] is None:
+                    trial[f] = 'null'
+                        
+            if 'left_action_value' in df_latent.columns:
                 if any(df_latent.trial==trial['trial']):
                     trial['left_action_value'], trial['right_action_value'], trial['rpe'] = df_latent.loc[df_latent.trial==trial['trial'], ['left_action_value', 'right_action_value', 'rpe']].values[0]
                 else:
                     trial['left_action_value'], trial['right_action_value'], trial['rpe'] = [np.nan] * 3  # Ignored trial
             else:
                 trial['left_action_value'], trial['right_action_value'], trial['rpe'] = [np.nan] * 3  # No model fitting results
-            
+                                            
             nwbfile.add_trial(**{k: v for k, v in trial.items() if k not in skip_adding_columns})
 
     print('done!')
@@ -458,78 +460,120 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
     nwbfile.add_acquisition(behavioral_event)
 
     # ---- behavior events
-    q_trial_event = q_trial_event.proj(trial_event_type='trial_event_type', trial_event_time=f'trial_event_time - {first_trial_bitcode_start}')  # Align with ephys: 0 = first trial start
-    unique_trial_event_type = (experiment.TrialEventType & q_trial_event).fetch('trial_event_type')
-    
-    trial_event_to_exclude = ['bitcodestart', 'bpodstart', 'zaberstep']
-
-    for trial_event_type in unique_trial_event_type:
-        if trial_event_type in trial_event_to_exclude:
-            continue
+    if if_exists_ephys:   # Use NI time
+        q_trial_event = q_trial_event.proj(trial_event_type='trial_event_type', trial_event_time=f'trial_event_time - {first_trial_bitcode_start}')  # Align with ephys: 0 = first trial start
+        unique_trial_event_type = (experiment.TrialEventType & q_trial_event).fetch('trial_event_type')
         
-        trial, trial_event_time = (q_trial_event & {'trial_event_type': trial_event_type}).fetch(
-            'trial', 'trial_event_time', order_by='trial')
-        
-        behavioral_event.create_timeseries(
-            name='lickportready' if trial_event_type == 'zaberready' else trial_event_type,
-            unit='a.u.', conversion=1.0,
-            data=np.full_like(trial_event_time.astype(float), 1),
-            timestamps=trial_event_time.astype(float),
-            description='time (second) relative to the first trial start (aligned with ephys)')         
+        trial_event_to_exclude = ['bitcodestart', 'bpodstart', 'zaberstep']
 
-    # If there is no zaber feedback, estimate `lickportready` using bitcodestart
-    # see https://github.com/hanhou/map-ephys/blob/26892a06b5877687ba4c95d23cbefa5ab4266033/pipeline/psth_foraging.py#L379
-    offset_bitcodestart_to_zaberready = 0.146
-    
-    if 'zaberready' not in unique_trial_event_type:
-        bitcodestart_time = (q_trial_event & {'trial_event_type': 'bitcodestart'}).fetch(
-                                              'trial_event_time', order_by='trial')
-        
-        behavioral_event.create_timeseries(
-            name='lickportready',
-            unit='a.u.', conversion=1.0,
-            data=np.full_like(bitcodestart_time.astype(float), 1),
-            timestamps=bitcodestart_time.astype(float) + offset_bitcodestart_to_zaberready,
-            description='time (second) relative to the first trial start (aligned with ephys)') 
-    
-
-    # ---- action events
-
-    q_action_event = ephys.ActionEvent & session_key
-    q_action_event = q_action_event.proj(action_event_type='action_event_type', action_event_time=f'action_event_time - {first_trial_bitcode_start}')  # Align with ephys: 0 = first trial start
-    unique_action_event_type = (experiment.ActionEventType & q_action_event).fetch('action_event_type')
-
-    for action_event_type in unique_action_event_type:
-        trial, action_event_time = (q_action_event
-                               & {'action_event_type': action_event_type}).fetch(
-            'trial', 'action_event_time', order_by='trial')
-
-        behavioral_event.create_timeseries(
-            name=action_event_type.replace(' ', '_'),
-            unit='a.u.', conversion=1.0,
-            data=np.full_like(action_event_time.astype(float), 1),
-            timestamps=action_event_time.astype(float),
-            description='time (second) relative to the first trial start (aligned with ephys)')
-        
-    # If no lick time in ephys NI, use bpod time
-    if 'left lick' not in unique_action_event_type:
-        first_trial_bitcode_start = (ephys.TrialEvent & session_key & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time')
-        q_action_global_from_bpod = ((experiment.ActionEvent & session_key)
-                                     * (experiment.TrialEvent & 'trial_event_type = "go"').proj(go_bpod='trial_event_time')
-                                     * (ephys.TrialEvent & 'trial_event_type = "go"').proj(go_global='trial_event_time')
-                                     ).proj(..., action_event_time_global=f'action_event_time - go_bpod + go_global - {first_trial_bitcode_start}')
-
-        for action_event_type in ['left lick', 'right lick']:
-            action_event_time_global_from_bpod = (q_action_global_from_bpod & {'action_event_type': action_event_type}).fetch('action_event_time_global')
+        for trial_event_type in unique_trial_event_type:
+            if trial_event_type in trial_event_to_exclude:
+                continue
             
+            trial, trial_event_time = (q_trial_event & {'trial_event_type': trial_event_type}).fetch(
+                'trial', 'trial_event_time', order_by='trial')
+            
+            behavioral_event.create_timeseries(
+                name='lickportready' if trial_event_type == 'zaberready' else trial_event_type,
+                unit='a.u.', conversion=1.0,
+                data=np.full_like(trial_event_time.astype(float), 1),
+                timestamps=trial_event_time.astype(float),
+                description='time (second) relative to the first trial start (aligned with ephys)')         
+
+        # If there is no zaber feedback, estimate `lickportready` using bitcodestart
+        # see https://github.com/hanhou/map-ephys/blob/26892a06b5877687ba4c95d23cbefa5ab4266033/pipeline/psth_foraging.py#L379
+        offset_bitcodestart_to_zaberready = 0.146
+        
+        if 'zaberready' not in unique_trial_event_type:
+            bitcodestart_time = (q_trial_event & {'trial_event_type': 'bitcodestart'}).fetch(
+                                                'trial_event_time', order_by='trial')
+            
+            behavioral_event.create_timeseries(
+                name='lickportready',
+                unit='a.u.', conversion=1.0,
+                data=np.full_like(bitcodestart_time.astype(float), 1),
+                timestamps=bitcodestart_time.astype(float) + offset_bitcodestart_to_zaberready,
+                description='time (second) relative to the first trial start (aligned with ephys)') 
+        
+
+        # ---- action events
+
+        q_action_event = ephys.ActionEvent & session_key
+        q_action_event = q_action_event.proj(action_event_type='action_event_type', action_event_time=f'action_event_time - {first_trial_bitcode_start}')  # Align with ephys: 0 = first trial start
+        unique_action_event_type = (experiment.ActionEventType & q_action_event).fetch('action_event_type')
+
+        for action_event_type in unique_action_event_type:
+            trial, action_event_time = (q_action_event
+                                & {'action_event_type': action_event_type}).fetch(
+                'trial', 'action_event_time', order_by='trial')
+
             behavioral_event.create_timeseries(
                 name=action_event_type.replace(' ', '_'),
                 unit='a.u.', conversion=1.0,
-                data=np.full_like(action_event_time_global_from_bpod.astype(float), 1),
-                timestamps=action_event_time_global_from_bpod.astype(float),
+                data=np.full_like(action_event_time.astype(float), 1),
+                timestamps=action_event_time.astype(float),
                 description='time (second) relative to the first trial start (aligned with ephys)')
-    print('done!')
-    
+            
+        # If no lick time in ephys NI, use bpod time
+        if 'left lick' not in unique_action_event_type:
+            first_trial_bitcode_start = (ephys.TrialEvent & session_key & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time')
+            q_action_global_from_bpod = ((experiment.ActionEvent & session_key)
+                                        * (experiment.TrialEvent & 'trial_event_type = "go"').proj(go_bpod='trial_event_time')
+                                        * (ephys.TrialEvent & 'trial_event_type = "go"').proj(go_global='trial_event_time')
+                                        ).proj(..., action_event_time_global=f'action_event_time - go_bpod + go_global - {first_trial_bitcode_start}')
+
+            for action_event_type in ['left lick', 'right lick']:
+                action_event_time_global_from_bpod = (q_action_global_from_bpod & {'action_event_type': action_event_type}).fetch('action_event_time_global')
+                
+                behavioral_event.create_timeseries(
+                    name=action_event_type.replace(' ', '_'),
+                    unit='a.u.', conversion=1.0,
+                    data=np.full_like(action_event_time_global_from_bpod.astype(float), 1),
+                    timestamps=action_event_time_global_from_bpod.astype(float),
+                    description='time (second) relative to the first trial start (aligned with ephys)')
+        print('done!')
+    else:  # No ephys recording, use bpod local time
+        # Turn bpod local time to global time (not as accurate as NI time, which we don't have here)
+        q_trial_event = (experiment.TrialEvent * experiment.SessionTrial.proj('start_time') & session_key).proj(
+            'trial_event_type', trial_event_time='trial_event_time + start_time')
+        unique_trial_event_type = (experiment.TrialEventType & q_trial_event).fetch('trial_event_type')
+        
+        trial_event_to_exclude = ['bitcodestart', 'bpodstart', 'videostart']
+
+        for trial_event_type in unique_trial_event_type:
+            if trial_event_type in trial_event_to_exclude:
+                continue
+            
+            trial, trial_event_time = (q_trial_event & {'trial_event_type': trial_event_type}).fetch(
+                'trial', 'trial_event_time', order_by='trial')
+            
+            behavioral_event.create_timeseries(
+                name='lickportready' if trial_event_type == 'zaberready' else trial_event_type,
+                unit='a.u.', conversion=1.0,
+                data=np.full_like(trial_event_time.astype(float), 1),
+                timestamps=trial_event_time.astype(float),
+                description='time (second) relative to the first trial start (no ephys, from bpod only!)')
+        
+
+        # ---- action events
+        # Turn bpod local time to global time (not as accurate as NI time, which we don't have here)
+        q_action_event = (experiment.ActionEvent * experiment.SessionTrial.proj('start_time') & session_key).proj(
+            'action_event_type', action_event_time='action_event_time + start_time')
+        unique_action_event_type = (experiment.ActionEventType & q_action_event).fetch('action_event_type')
+
+        for action_event_type in unique_action_event_type:
+            trial, action_event_time = (q_action_event
+                                & {'action_event_type': action_event_type}).fetch(
+                'trial', 'action_event_time', order_by='trial')
+
+            behavioral_event.create_timeseries(
+                name=action_event_type.replace(' ', '_'),
+                unit='a.u.', conversion=1.0,
+                data=np.full_like(action_event_time.astype(float), 1),
+                timestamps=action_event_time.astype(float),
+                description='time (second) relative to the first trial start (no ephys, from bpod only!)')
+        print('done!')
+        
 
     # # ---- photostim events ----
 
