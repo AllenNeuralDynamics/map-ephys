@@ -421,7 +421,7 @@ class BehaviorBpodIngest(dj.Imported):
                                          water_restriction_number NOT LIKE "dl%" AND 
                                          water_restriction_number NOT LIKE "SC%" AND
                                          water_restriction_number NOT LIKE "tw%"'''
-                                        #   & 'water_restriction_number = "XY_14"'
+                                        #  & 'water_restriction_number = "XY_22"'
                                       ).fetch(
             'water_restriction_number', 'subject_id'))}
 
@@ -864,14 +864,14 @@ class BehaviorBpodIngest(dj.Imported):
                                             log.info(f"Warning: , len({event}) = 2 @ {subject_now}, session {key['session']}, trial {trial_num}. Fixed!")
                                         else:
                                             log.info(f"Warning: , len({event}) = 2 @ {subject_now}, session {key['session']}, trial {trial_num}. Cannot fix!")
-                                            breakpoint()
+                                            # breakpoint()
                                     elif len(wavplayer_rows) == 1:  # In case where photostim starts after go cue and terminates at the end of the trial (no active stop or ramping down)
                                         if wavplayer_rows.iloc[0] - timer4_start_bpod_time.iloc[0] < 0.001:  # The only `WavePlayer` event should be very close to TimerStart
                                             trial_end = df_behavior_trial.loc[df_behavior_trial['MSG'] == 'End', 'BPOD-INITIAL-TIME'].iloc[0]
                                             wavplayer_rows = wavplayer_rows.append(pd.Series([trial_end, trial_end]))  # photosim terminates at trial end; no ramping down
                                         else:
                                             log.info(f"Warning: , len({event}) = 1 @ {subject_now}, session {key['session']}, trial {trial_num}. Cannot fix!")
-                                            breakpoint()
+                                            # breakpoint()
                                     on_bpod_time, down_bpod_time, off_bpod_time = wavplayer_rows.iloc[0:3]
 
                                 elif key['session_date'] < date(2022, 5, 15):  # Old protocol: bpod trial starts at the middle of ITI
@@ -880,7 +880,7 @@ class BehaviorBpodIngest(dj.Imported):
                                     if len(timer4_start):   # The first three event_row should be this ITI before
                                         if len(wavplayer_rows) < 3: 
                                             print(f'Warning: has timer4 but len(waveplayer_row) < 3!!')
-                                            breakpoint()
+                                            # breakpoint()
                                             continue
                                         if (last_iti_after_on_PC_time is not None and
                                             last_iti_after_off_PC_time is None and
@@ -979,15 +979,15 @@ class BehaviorBpodIngest(dj.Imported):
                         # assert side_code == side_code_from_stdout.astype(int).iloc[0], 'ERROR: stim_sides from WavePlayer != side from stdout message'
                         if side_code != side_code_from_stdout.astype(int).iloc[0]:
                             this_row['side'] = side_code_from_stdout.astype(int).iloc[0]  # Override
-                            log.warning(f'laser side conflict:  from WavePlayer stamps = {side_code}, from message = {side_code_from_stdout.astype(int).iloc[0]}')
+                            log.warning(f'laser side conflict:  from WavePlayer stamps = {side_code}, from text = {side_code_from_stdout.astype(int).iloc[0]}, override with text!')
                         
-                    ramping_down_from_stdout = self._get_message(df_behavior_session, 'laser ramping down')
+                    ramping_down_from_stdout = self._get_message(df_behavior_trial, 'laser ramping down')
                     if len(ramping_down_from_stdout):
                         if this_row['bpod_timer_align_to'] not in ('whole trial', 'after go cue'):  # Otherwise it's a hard stop
                             # assert ramping_down == float(ramping_down_from_stdout.iloc[0]), 'ERROR: ramping down not consistent!!'
                             if ramping_down != float(ramping_down_from_stdout.iloc[0]):
                                 this_row['ramping_down'] = float(ramping_down_from_stdout.iloc[0])
-                                log.warning(f'ramping down not consistent, from time markers = {ramping_down}, from text = {float(ramping_down_from_stdout.iloc[0])}')
+                                log.warning(f'ramping down not consistent, from WavePlayer stamps = {ramping_down}, from text = {float(ramping_down_from_stdout.iloc[0])}, override with text!')
                     
                     rows['photostim_foraging_trial'].extend([this_row])
                 
