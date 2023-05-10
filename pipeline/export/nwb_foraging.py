@@ -443,7 +443,9 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
                     else:
                         trial[f] = 'null'
                     
-            for f in ['left_reward_prob', 'right_reward_prob']:
+            for f in ['left_reward_prob', 'right_reward_prob', 'photostim_power', 
+                      'photostim_on_to_go_cue', 'photostim_off_to_go_cue', 'photostim_duration', 'photostim_ramping_down',
+                      'photostim_bpod_timer_offset']:
                 trial[f] = float(trial[f])
                                         
             if 'left_action_value' in df_latent.columns:
