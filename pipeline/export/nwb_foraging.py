@@ -77,8 +77,8 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
     session_identifier = f'{water_res_num}_{sess_datetime}_s{session_key["session"]}'
 
     experiment_description = (experiment.TaskProtocol
-                            & (experiment.BehaviorTrial & session_key)).fetch1(
-        'task_protocol_description')
+                            & (experiment.BehaviorTrial & session_key)).fetch(
+        'task_protocol_description')[-1]
 
     try:
         session_descr = (experiment.SessionComment & session_key).fetch1('session_comment')
