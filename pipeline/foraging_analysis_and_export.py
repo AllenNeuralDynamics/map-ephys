@@ -11,6 +11,9 @@ from pipeline.model import descriptive_analysis
 from pipeline.plot.foraging_model_plot import plot_mouse_fitting_results
 from .model.bandit_model_comparison import BanditModelComparison
 from pipeline.foraging_model import get_session_history
+from pipeline.export import nwb_foraging
+import pynwb
+from pynwb import NWBHDF5IO
 
 
 
@@ -434,6 +437,47 @@ class MouseModelFittingAllSessions(dj.Computed):
         (schema.jobs & r'table_name LIKE "%model_all_sessions%"').delete()
         cls.delete()
         (schema.external['report_store'] & r'filepath LIKE "%model_all_sessions%"').delete(delete_external_files=delete_external_files)
+
+
+
+@schema
+class SessionExportAllNwb(dj.Computed):
+    '''
+    Export behavioral data to .npy (Stefano)
+    '''
+    definition = """
+    -> experiment.Session
+    ---
+    all_nwb: filepath@report_store
+    """
+    
+    key_source = (foraging_analysis.SessionTaskProtocol & 'session_task_protocol in (100, 110, 120)') # Two-lickport foraging
+    
+    def make(self, key):
+        h2o = (lab.WaterRestriction & key).fetch1('water_restriction_number')
+        sess_dir = store_stage / 'all_sessions' / 'export_all_nwb' / h2o
+        sess_dir.mkdir(parents=True, exist_ok=True)
+
+        datestr = (experiment.Session & key).fetch1('session_date').strftime(r"%Y%m%d")
+        
+        file_prefix = f'{h2o}_{datestr}_{key["session"]}'
+        file_full_path = sess_dir / f'{file_prefix}.nwb'
+                
+        # Pack nwb
+        nwbfile = nwb_foraging.datajoint_to_nwb(key, raw_ephys=False, raw_video=False, if_ephys_units=True, if_dlc_tracking=True)
+        with NWBHDF5IO(file_full_path.as_posix(), mode='w') as io:
+            io.write(nwbfile)
+            print(f'\tWrite NWB 2.0 file: {file_full_path}')
+        
+        self.insert1({**key, 'all_nwb': file_full_path.as_posix()})
+        
+        
+    @classmethod
+    def delete_all(cls, delete_external_files=False, **kwargs):
+        (schema.jobs & r'table_name LIKE "%export_all_nwb%"').delete()
+        cls.delete()
+        (schema.external['report_store'] & r'filepath LIKE "%export_all_nwb%"').delete(delete_external_files=delete_external_files)
+
 
 
 @schema

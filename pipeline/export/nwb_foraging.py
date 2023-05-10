@@ -106,7 +106,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
         species='mus musculus')
 
     # ==================================== EPHYS ==================================
-    if if_ephys_units:
+    if if_ephys_units and len(ephys.ProbeInsertion & session_key):
         print('export ephys...', end='')
         # add additional columns to the electrodes table
         electrodes_query = lab.ProbeType.Electrode * lab.ElectrodeConfig.Electrode
@@ -307,84 +307,83 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
     if if_exists_ephys:
         first_trial_bitcode_start = float((q_trial_event & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time'))
     
-    if if_dlc_tracking:
-
+    if if_dlc_tracking and len(tracking_ingest.TrackingIngestForaging & session_key):
         print('exporting tracking...', end='')
-        if tracking_ingest.TrackingIngestForaging & session_key:
-            behav_acq = pynwb.behavior.BehavioralTimeSeries(name='BehavioralTimeSeries')
-            nwbfile.add_acquisition(behav_acq)
+    
+        behav_acq = pynwb.behavior.BehavioralTimeSeries(name='BehavioralTimeSeries')
+        nwbfile.add_acquisition(behav_acq)
 
-            tracking_devices = (tracking.TrackingDevice & (tracking_ingest.TrackingIngestForaging & session_key)).fetch(as_dict=True)
+        tracking_devices = (tracking.TrackingDevice & (tracking_ingest.TrackingIngestForaging & session_key)).fetch(as_dict=True)
 
-            for trk_device in tracking_devices:
-                trk_device_name = trk_device['tracking_device'].replace(' ', '') + '_' + trk_device['tracking_position']
-                trk_fs = float(trk_device['sampling_rate'])
+        for trk_device in tracking_devices:
+            trk_device_name = trk_device['tracking_device'].replace(' ', '') + '_' + trk_device['tracking_position']
+            trk_fs = float(trk_device['sampling_rate'])
 
-                foraging_tracking_features = tracking.Tracking().tracking_features
-                foraging_tracking_features = {x:foraging_tracking_features[x] for x in foraging_tracking_features if x[0] == x[0].lower()}
-                
-                # Add lickport
-                foraging_tracking_features['lickport'] = tracking.Tracking.LickPortTracking
-                
-                # Add feature tables
-                for feature, feature_tbl in foraging_tracking_features.items():
-                    ft_attrs = [n for n in feature_tbl.heading.names if n not in feature_tbl.primary_key]
-                    if feature_tbl & trk_device & session_key:
-                        if feature == 'whisker':
-                            additional_conditions = [{'whisker_name': n} for n in
-                                                     set((feature_tbl & trk_device & session_key).fetch(
-                                                         'whisker_name'))]
-                        elif feature in ('tongue_side', 'pupil_side'):
-                            additional_conditions = [{'side': n} for n in
-                                                     set((feature_tbl & trk_device & session_key).fetch(
-                                                         'side'))]
+            foraging_tracking_features = tracking.Tracking().tracking_features
+            foraging_tracking_features = {x:foraging_tracking_features[x] for x in foraging_tracking_features if x[0] == x[0].lower()}
+            
+            # Add lickport
+            foraging_tracking_features['lickport'] = tracking.Tracking.LickPortTracking
+            
+            # Add feature tables
+            for feature, feature_tbl in foraging_tracking_features.items():
+                ft_attrs = [n for n in feature_tbl.heading.names if n not in feature_tbl.primary_key]
+                if feature_tbl & trk_device & session_key:
+                    if feature == 'whisker':
+                        additional_conditions = [{'whisker_name': n} for n in
+                                                    set((feature_tbl & trk_device & session_key).fetch(
+                                                        'whisker_name'))]
+                    elif feature in ('tongue_side', 'pupil_side'):
+                        additional_conditions = [{'side': n} for n in
+                                                    set((feature_tbl & trk_device & session_key).fetch(
+                                                        'side'))]
+                    else:
+                        additional_conditions = [{}]
+
+                    for r in additional_conditions:
+                        # print(f'    ... {trk_device_name}, {feature}: {ft_attrs}, {r}')
+
+                        trials, samples, start_time, stop_time, ni_time, *position_data = (experiment.SessionTrial
+                                                                * tracking.Tracking
+                                                                * tracking.Tracking.Frame
+                                                                * feature_tbl
+                                                                & trk_device
+                                                                & session_key
+                                                                & r).fetch(
+                            'trial', 'tracking_samples', 'start_time', 'stop_time', 'frame_time', *ft_attrs, order_by='trial')
+
+                        if all([sample == len(ni_t) == data.shape[0] for sample, ni_t, data in zip(samples, ni_time, position_data[0])]):
+                            pass
+                            # print('   Sanity check passed!')
                         else:
-                            additional_conditions = [{}]
+                            print('     !!!!!!!!!!! Wrong frame number !!!!!!!!!!!!')
 
-                        for r in additional_conditions:
-                            # print(f'    ... {trk_device_name}, {feature}: {ft_attrs}, {r}')
+                        # tracking_timestamps = np.hstack([np.arange(nsample) / trk_fs + float(trial_start_time)
+                        #                                  for nsample, trial_start_time in zip(samples, start_time)])
 
-                            trials, samples, start_time, stop_time, ni_time, *position_data = (experiment.SessionTrial
-                                                                   * tracking.Tracking
-                                                                   * tracking.Tracking.Frame
-                                                                   * feature_tbl
-                                                                   & trk_device
-                                                                   & session_key
-                                                                   & r).fetch(
-                                'trial', 'tracking_samples', 'start_time', 'stop_time', 'frame_time', *ft_attrs, order_by='trial')
+                        tracking_timestamps = np.hstack([t - first_trial_bitcode_start for t in ni_time])  # Concatenate all trials (IMPORTANT: Aligned to ephys, i.e., time relative to first bitcode start)       
+                        position_data = np.vstack([np.hstack(d) for d in position_data]).T
+                        behav_ts_name = f'{trk_device_name}_{feature}' + (f'_{list(r.values())[0]}' if r else '')
+                        behav_acq.create_timeseries(name=behav_ts_name,
+                                                    data=position_data.astype(np.float32),  # To save some space
+                                                    timestamps=tracking_timestamps,  # Global NI time
+                                                    description=f'Time series for {feature} position: {tuple(ft_attrs)}',
+                                                    unit='a.u.',
+                                                    conversion=1.0)
+        # Export pupil size
+        trials, pupil_size = (tracking.TrackingPupilSize
+                                & session_key).fetch('trial', 'polygon_area', order_by='trial')
+        behav_acq.create_timeseries(name='pupil_size_polygon',
+                                    data=np.hstack(pupil_size),
+                                    timestamps=[],  # Global NI time
+                                    description=f'Time series for pupil size, caculated as polygon area',
+                                    unit='a.u.',
+                                    conversion=1.0)               
 
-                            if all([sample == len(ni_t) == data.shape[0] for sample, ni_t, data in zip(samples, ni_time, position_data[0])]):
-                                pass
-                                # print('   Sanity check passed!')
-                            else:
-                                print('     !!!!!!!!!!! Wrong frame number !!!!!!!!!!!!')
-
-                            # tracking_timestamps = np.hstack([np.arange(nsample) / trk_fs + float(trial_start_time)
-                            #                                  for nsample, trial_start_time in zip(samples, start_time)])
-
-                            tracking_timestamps = np.hstack([t - first_trial_bitcode_start for t in ni_time])  # Concatenate all trials (IMPORTANT: Aligned to ephys, i.e., time relative to first bitcode start)       
-                            position_data = np.vstack([np.hstack(d) for d in position_data]).T
-                            behav_ts_name = f'{trk_device_name}_{feature}' + (f'_{list(r.values())[0]}' if r else '')
-                            behav_acq.create_timeseries(name=behav_ts_name,
-                                                        data=position_data.astype(np.float32),  # To save some space
-                                                        timestamps=tracking_timestamps,  # Global NI time
-                                                        description=f'Time series for {feature} position: {tuple(ft_attrs)}',
-                                                        unit='a.u.',
-                                                        conversion=1.0)
-            # Export pupil size
-            trials, pupil_size = (tracking.TrackingPupilSize
-                                 & session_key).fetch('trial', 'polygon_area', order_by='trial')
-            behav_acq.create_timeseries(name='pupil_size_polygon',
-                                        data=np.hstack(pupil_size),
-                                        timestamps=[],  # Global NI time
-                                        description=f'Time series for pupil size, caculated as polygon area',
-                                        unit='a.u.',
-                                        conversion=1.0)               
-
-            # Add video file mapping to scratch
-            mapping = pd.DataFrame((tracking_ingest.TrackingIngestForaging.TrackingFile * tracking.Tracking.Frame & session_key).fetch())
-            mapping.frame_time = mapping.frame_time.apply(lambda x: x - first_trial_bitcode_start)  # (IMPORTANT: Aligned to ephys, i.e., time relative to first bitcode start)       
-            nwbfile.add_scratch(mapping, name='video_frame_mapping', description='maps each video file name to ')
+        # Add video file mapping to scratch
+        mapping = pd.DataFrame((tracking_ingest.TrackingIngestForaging.TrackingFile * tracking.Tracking.Frame & session_key).fetch())
+        mapping.frame_time = mapping.frame_time.apply(lambda x: x - first_trial_bitcode_start)  # (IMPORTANT: Aligned to ephys, i.e., time relative to first bitcode start)       
+        nwbfile.add_scratch(mapping, name='video_frame_mapping', description='maps each video file name to ')
 
 
         print('done!')
@@ -440,6 +439,9 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
             for f in trial:
                 if trial[f] is None:
                     trial[f] = 'null'
+                    
+            for f in ['left_reward_prob', 'right_reward_prob']:
+                trial[f] = float(trial[f])
                         
             if 'left_action_value' in df_latent.columns:
                 if any(df_latent.trial==trial['trial']):
