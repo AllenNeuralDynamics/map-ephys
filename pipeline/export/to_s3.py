@@ -147,6 +147,7 @@ def export_df_foraging_sessions(s3_rel_path='report/st_cache/', file_name='df_se
     # export and upload
     export_df_and_upload(df_sessions, s3_rel_path, file_name)
     export_df_and_upload(df_sessions, 'report/all_sessions/export_behavior_npy/', file_name) # Make a copy for Stefano
+    export_df_and_upload(df_sessions, 'report/all_sessions/export_all_nwb/', file_name) # Make a copy for nwb
     
     return df_sessions
 
