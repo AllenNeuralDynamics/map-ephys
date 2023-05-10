@@ -353,7 +353,7 @@ class SessionLickPSTHReport(dj.Computed):
         plt.close('all')
 
         self.insert1({**key, **fig_dict}, 
-                    ignore_extra_fields=True,
+                    ignore_extra_fields=True,   
                     allow_direct_insert=True)
         
 
@@ -464,7 +464,9 @@ class SessionExportAllNwb(dj.Computed):
         file_full_path = sess_dir / f'{file_prefix}.nwb'
                 
         # Pack nwb
-        nwbfile = nwb_foraging.datajoint_to_nwb(key, raw_ephys=False, raw_video=False, if_ephys_units=True, if_dlc_tracking=True)
+        nwbfile = nwb_foraging.datajoint_to_nwb(key, raw_ephys=False, raw_video=False, 
+                                                if_ephys_units=True, if_dlc_tracking=True,
+                                                if_verbose=False)
         with NWBHDF5IO(file_full_path.as_posix(), mode='w') as io:
             io.write(nwbfile)
             print(f'\tWrite NWB 2.0 file: {file_full_path}')

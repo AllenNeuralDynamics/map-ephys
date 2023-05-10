@@ -67,7 +67,7 @@ def gains_helper(gains):
 zero_time = datetime.strptime('00:00:00', '%H:%M:%S').time()  # no precise time available
 
 
-def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_units=True, if_dlc_tracking=True):
+def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_units=True, if_dlc_tracking=True, if_verbose=True):
     """
     Generate one NWBFile object representing all data
     coming from the specified "session_key" (representing one session)
@@ -107,7 +107,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
 
     # ==================================== EPHYS ==================================
     if if_ephys_units and len(ephys.ProbeInsertion & session_key):
-        print('export ephys...', end='')
+        if if_verbose: print('export ephys...', end='')
         # add additional columns to the electrodes table
         electrodes_query = lab.ProbeType.Electrode * lab.ElectrodeConfig.Electrode
         for additional_attribute in ['shank', 'shank_col', 'shank_row']:
@@ -275,29 +275,29 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
                         **conversion_kwargs
                     )
                 )
-        print('done!')
+        if if_verbose: print('done!')
     
-    # =============================== PHOTO-STIMULATION ===============================
-    stim_sites = {}
-    photostim_query = (experiment.Photostim & (experiment.PhotostimTrial & session_key))
-    if photostim_query:
-        for photostim_key in photostim_query.fetch('KEY'):
-            photostim = (experiment.Photostim * lab.PhotostimDevice.proj('excitation_wavelength') & photostim_key).fetch1()
-            stim_device = (nwbfile.get_device(photostim['photostim_device'])
-                        if photostim['photostim_device'] in nwbfile.devices
-                        else nwbfile.create_device(name=photostim['photostim_device']))
+    # # =============================== PHOTO-STIMULATION ===============================
+    # stim_sites = {}
+    # photostim_query = (experiment.Photostim & (experiment.PhotostimTrial & session_key))
+    # if photostim_query:
+    #     for photostim_key in photostim_query.fetch('KEY'):
+    #         photostim = (experiment.Photostim * lab.PhotostimDevice.proj('excitation_wavelength') & photostim_key).fetch1()
+    #         stim_device = (nwbfile.get_device(photostim['photostim_device'])
+    #                     if photostim['photostim_device'] in nwbfile.devices
+    #                     else nwbfile.create_device(name=photostim['photostim_device']))
 
-            stim_site = pynwb.ogen.OptogeneticStimulusSite(
-                name=f'{photostim["photostim_device"]}_{photostim["photo_stim"]}',
-                device=stim_device,
-                excitation_lambda=float(photostim['excitation_wavelength']),
-                location=json.dumps([{k: v for k, v in stim_locs.items()
-                                    if k not in experiment.Photostim.primary_key}
-                                    for stim_locs in (experiment.Photostim.PhotostimLocation
-                                                    & photostim_key).fetch(as_dict=True)], default=str),
-                description=f'excitation_duration: {photostim["duration"]}')
-            nwbfile.add_ogen_site(stim_site)
-            stim_sites[photostim['photo_stim']] = stim_site 
+    #         stim_site = pynwb.ogen.OptogeneticStimulusSite(
+    #             name=f'{photostim["photostim_device"]}_{photostim["photo_stim"]}',
+    #             device=stim_device,
+    #             excitation_lambda=float(photostim['excitation_wavelength']),
+    #             location=json.dumps([{k: v for k, v in stim_locs.items()
+    #                                 if k not in experiment.Photostim.primary_key}
+    #                                 for stim_locs in (experiment.Photostim.PhotostimLocation
+    #                                                 & photostim_key).fetch(as_dict=True)], default=str),
+    #             description=f'excitation_duration: {photostim["duration"]}')
+    #         nwbfile.add_ogen_site(stim_site)
+    #         stim_sites[photostim['photo_stim']] = stim_site 
 
     # =============================== TRACKING =============================== 
     
@@ -308,7 +308,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
         first_trial_bitcode_start = float((q_trial_event & {'trial_event_type': 'bitcodestart', 'trial': 1}).fetch1('trial_event_time'))
     
     if if_dlc_tracking and len(tracking_ingest.TrackingIngestForaging & session_key):
-        print('exporting tracking...', end='')
+        if if_verbose: print('exporting tracking...', end='')
     
         behav_acq = pynwb.behavior.BehavioralTimeSeries(name='BehavioralTimeSeries')
         nwbfile.add_acquisition(behav_acq)
@@ -386,10 +386,10 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
         nwbfile.add_scratch(mapping, name='video_frame_mapping', description='maps each video file name to ')
 
 
-        print('done!')
+        if if_verbose: print('done!')
 
     # =============================== BEHAVIOR TRIALS ===============================    
-    print('exporting behavioral trials...', end='')
+    if if_verbose: print('exporting behavioral trials...', end='')
     
     q_trial = (experiment.SessionTrial * experiment.BehaviorTrial & session_key).proj(..., '-trial_uid', '-trial_instruction')
     q_trial *= experiment.WaterPortChoice.proj(choice='water_port')  # Add choice
@@ -438,11 +438,14 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
             
             for f in trial:
                 if trial[f] is None:
-                    trial[f] = 'null'
+                    if 'photostim' in f and f not in ['photostim_bpod_timer_align_to']:
+                        trial[f] = 0  # All element in a column must be of the same type
+                    else:
+                        trial[f] = 'null'
                     
             for f in ['left_reward_prob', 'right_reward_prob']:
                 trial[f] = float(trial[f])
-                        
+                                        
             if 'left_action_value' in df_latent.columns:
                 if any(df_latent.trial==trial['trial']):
                     trial['left_action_value'], trial['right_action_value'], trial['rpe'] = df_latent.loc[df_latent.trial==trial['trial'], ['left_action_value', 'right_action_value', 'rpe']].values[0]
@@ -453,11 +456,11 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
                                             
             nwbfile.add_trial(**{k: v for k, v in trial.items() if k not in skip_adding_columns})
 
-    print('done!')
+    if if_verbose: print('done!')
             
     # =============================== BEHAVIOR TRIALS' EVENTS ===============================
     
-    print('exporting behavior trial events...', end='')
+    if if_verbose: print('exporting behavior trial events...', end='')
     behavioral_event = pynwb.behavior.BehavioralEvents(name='BehavioralEvents')
     nwbfile.add_acquisition(behavioral_event)
 
@@ -533,7 +536,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
                     data=np.full_like(action_event_time_global_from_bpod.astype(float), 1),
                     timestamps=action_event_time_global_from_bpod.astype(float),
                     description='time (second) relative to the first trial start (aligned with ephys)')
-        print('done!')
+        if if_verbose: print('done!')
     else:  # No ephys recording, use bpod local time
         # Turn bpod local time to global time (not as accurate as NI time, which we don't have here)
         q_trial_event = (experiment.TrialEvent * experiment.SessionTrial.proj('start_time') & session_key).proj(
@@ -574,7 +577,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False, if_ephys_uni
                 data=np.full_like(action_event_time.astype(float), 1),
                 timestamps=action_event_time.astype(float),
                 description='time (second) relative to the first trial start (no ephys, from bpod only!)')
-        print('done!')
+        if if_verbose: print('done!')
         
 
     # # ---- photostim events ----
