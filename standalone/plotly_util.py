@@ -42,6 +42,11 @@ def add_plotly_errorbar(fig, x, y, err, color=None, alpha=0.2, mode="markers+lin
             hoverinfo='skip',
         ), **subplot_kwargs)
     
+    if 'rgb' in color:  # if starting with rgb and already have alpha, just override the alpha
+        error_band_fill_color = f'{",".join(color.split(",")[:-1])}, 0.4)'
+    else:  # in text ('red', 'blue', etc.)
+        error_band_fill_color = f'rgba({plotly.colors.convert_colors_to_same_type(color, "rgb")[0][0].split("(")[-1][:-1]}, {alpha})'
+    
     fig.add_trace(go.Scatter(
                     # name='Upper Bound',
                     x=x,
@@ -50,7 +55,7 @@ def add_plotly_errorbar(fig, x, y, err, color=None, alpha=0.2, mode="markers+lin
                     marker=dict(color=color),
                     line=dict(width=0),
                     fill='tonexty',
-                    fillcolor=f'rgba({plotly.colors.convert_colors_to_same_type(color, "rgb")[0][0].split("(")[-1][:-1]}, {alpha})',
+                    fillcolor=error_band_fill_color,
                     legendgroup=legend_group,
                     showlegend=False,
                     hoverinfo='skip'

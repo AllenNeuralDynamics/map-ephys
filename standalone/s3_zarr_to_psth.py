@@ -1,4 +1,6 @@
 #%%
+# %load_ext autoreload
+# %autoreload 2
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -49,18 +51,17 @@ def halfgaussian_filter1d(input, sigma, axis=-1, output=None,
     return scipy.ndimage.convolve1d(input, weights, axis, output, mode, cval, origin)
 
 
-#%%
 # --- Get PSTH from zarr store on S3 ---
 fs = s3fs.S3FileSystem(anon=False)
 s3_zarr_root = f's3://aind-behavior-data/Han/ephys/export/psth'
 
-unit_key = session_keys[0]
+unit_key = {'subject_id': 482353, 'session': 36, 'insertion_number': 2, 'unit': 362}
 
 f_zarr = fs.glob(f'{s3_zarr_root}/{unit_key["subject_id"]}_{unit_key["session"]}*.zarr')
 
 ds = xr.open_zarr(f's3://{f_zarr[0]}', consolidated=True)
 df_unit_key = pd.DataFrame.from_dict(ds.attrs['unit_keys'])
-# unit_ind = df_unit_key.query(f'insertion_number == {unit_key.insertion_number} & unit == {unit_key.unit}').index
+unit_ind = df_unit_key.query(f'insertion_number == {unit_key["insertion_number"]} & unit == {unit_key["unit"]}').index
 
 # import matplotlib.pyplot as plt
 # fig, axes = plt.subplots(1, 1, figsize=(5, 5))
@@ -70,6 +71,7 @@ df_unit_key = pd.DataFrame.from_dict(ds.attrs['unit_keys'])
 
 #%%
 # Define PSTHs grouped by
+smooth_sigma = 0.1  # 100 ms
 psth_grouped_by = {
                     'choice_and_reward':
                         {
@@ -80,6 +82,17 @@ psth_grouped_by = {
                         'addition': {},
                         'plot_spec': {'choice_lr': {'marker_color': ['#FF6767', '#677EFF']}, 
                                         'reward': {'line_dash': ['solid', 'dot'], 'line_width': [2, 1]}}
+                        },
+                    
+                    'dQ_quantile_5':
+                        {
+                        'prod': {'relative_action_value_lr': 'quantile_5',
+                                },
+                        'name': {'relative_action_value_lr': [f'dQ_quantile_{n + 1}' for n in range(5)],
+                                },
+                        'addition': {},
+                        'plot_spec': {'relative_action_value_lr': {'marker_color': [f'rgba(0, 0, 0, {t})' for t in (0.1, 0.3, 0.5, 0.7, 0.9)]}, 
+                                     }
                         }
                     }
 
@@ -90,9 +103,15 @@ for group_method in psth_grouped_by:
     
     # Generate trial selection and plot setting
     for var, cats in psth_grouped_by[group_method]['prod'].items():
-        psth_grouped_by[group_method]['trial_select'][var] = [ds[var] == cat for cat in cats]
+        if 'quantile' in cats:  # Grouped by quantiles of a continuous variable
+            q_n = int(cats.split("_")[-1])
+            q_cut = pd.qcut(ds[var].values, q=q_n, labels=False, duplicates='drop')  # [0, 1, 2, ..., q_cut-1]
+            psth_grouped_by[group_method]['trial_select'][var] = [q_cut == q for q in range(q_n)]
+        else:  # Grouped by discrete categories
+            psth_grouped_by[group_method]['trial_select'][var] = [ds[var] == cat for cat in cats]
+        
         psth_grouped_by[group_method]['plot_setting'][var] = []
-        for ind in range(len(cats)):
+        for ind in range(len(psth_grouped_by[group_method]['trial_select'][var])):
             psth_grouped_by[group_method]['plot_setting'][var].append({key: values[ind] for key, values in psth_grouped_by[group_method]['plot_spec'][var].items()})
             
     prod_trials = list(itertools.product(*psth_grouped_by[group_method]['trial_select'].values()))
@@ -123,7 +142,7 @@ for group_method in psth_grouped_by:
         da_this[f'{group_method}'] = ((trial_dim), trial_groups.data)
 
         # Group the unit_period_spike_counts DataArray by condition_ordered along the trial dimension
-        da_this.data = halfgaussian_filter1d(da_this.astype(float), sigma=0.1/ds.attrs['bin_size'], axis=-1) / ds.attrs['bin_size'] # Smoothed, in spikes/s
+        da_this.data = halfgaussian_filter1d(da_this.astype(float), sigma=smooth_sigma/ds.attrs['bin_size'], axis=-1) / ds.attrs['bin_size'] # Smoothed, in spikes/s
         mean = da_this.groupby(f'{group_method}').mean()
         sem = da_this.groupby(f'{group_method}').std() / np.sqrt(da_this[trial_dim].groupby(f'{group_method}').count())
         ds[f'psth_aligned_to_{align_to}_grouped_by_{group_method}'] = xr.concat([mean, sem], dim=pd.Index(['mean', 'sem'], name="stat"))
@@ -137,18 +156,21 @@ from plotly_util import add_plotly_errorbar
 from plotly.subplots import make_subplots
 
 # --- Plot PSTH ---
+# group_by = 'choice_and_reward'
+group_by = 'dQ_quantile_5'
+
 fig = make_subplots(rows=1, cols=len(ds.align_tos), subplot_titles=ds.align_tos,
                     shared_yaxes=True)
 
 for col, align_to in enumerate(ds.align_tos):
-    for condition in ds['choice_and_reward'].data:
+    for condition in ds[group_by].data:
         t = ds[f't_to_{align_to}'].data
-        mean = ds[f'psth_aligned_to_{align_to}_grouped_by_{group_method}'].sel(stat='mean', unit=100, choice_and_reward=condition, drop=True).values
-        sem = ds[f'psth_aligned_to_{align_to}_grouped_by_{group_method}'].sel(stat='sem', unit=100, choice_and_reward=condition, drop=True).values
+        mean = ds[f'psth_aligned_to_{align_to}_grouped_by_{group_by}'].sel(stat='mean', unit=unit_ind, **{group_by: condition}, drop=True)[0, :].values
+        sem = ds[f'psth_aligned_to_{align_to}_grouped_by_{group_by}'].sel(stat='sem', unit=unit_ind, **{group_by: condition}, drop=True)[0, :].values
         add_plotly_errorbar(x=t, y=mean, err=sem, name=condition,   
                             fig=fig, subplot_kwargs=dict(row=1, col=col + 1), 
-                            alpha=0.2, mode="lines", showlegend=True if col == 0 else False,
-                            **ds[f'choice_and_reward_plot_settings'].sel(choice_and_reward=condition).item())
+                            alpha=0.1, mode="lines", showlegend=True if col == 0 else False,
+                            **ds[f'{group_by}_plot_settings'].sel(**{group_by: condition}).item())
     
 
 fig.update_layout(
@@ -161,3 +183,4 @@ fig.update_layout(
             )
 
 # plotly_events(fig, click_event=False, hover_event=False, select_event=False, override_height=fig.layout.height, override_width=fig.layout.width)
+# %%
