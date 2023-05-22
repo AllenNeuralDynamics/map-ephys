@@ -27,3 +27,5 @@ opencv-python
 dspca
 boto3
 statannotations
+xarray
+zarr
